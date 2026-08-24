@@ -6,8 +6,8 @@ backed by a custom append-only Write-Ahead Log (WAL) on local disk that
 provides full crash recovery.
 
 This document describes the system **as implemented**. Where a capability is
-designed but not built, it says so explicitly and points at the Design Q&A in
-[`README.md`](README.md) that works it out. Nothing described here without
+designed but not built, it says so explicitly and points at the design
+questions in [`README.md`](README.md). Nothing described here without
 such a marker is aspirational.
 
 ---
@@ -95,7 +95,8 @@ Upgrading to **at-least-once** means adding leases: a dequeue would log
 `OP_LEASE {id, deadline}` and hold the message in an invisible in-flight
 table until an `OP_ACK` arrived, with an expiry sweeper requeueing whatever
 lapsed. That design - including heartbeats for slow consumers and how replay
-re-arms unexpired leases - is worked out in README Design Q&A #3. **It is not
+re-arms unexpired leases, is worked out in the README design questions.
+**It is not
 implemented.** The `Status` field on `Message` is persisted on every `ENQUEUE`
 record (tombstones carry no message fields at all), so that change can land
 without a log-format version bump - but today it only ever holds `PENDING`.
@@ -390,7 +391,7 @@ queuemaxxing/
 ├── go.mod                      # module queuemaxxing - no dependencies
 ├── ARCHITECTURE.md             # this document
 ├── SKILLS.md                   # engineering & testing conventions
-├── README.md                   # usage, HTTP API, and Design Q&A
+├── README.md                   # how it works, how to run it, design questions
 ├── cmd/
 │   ├── server/                 # main: flags/env, wiring, HTTP server, shutdown
 │   └── client/                 # checkout-dispatch worker that uses the HTTP API

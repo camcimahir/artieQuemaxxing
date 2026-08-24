@@ -3,43 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Queuemaxxing console</title>
+<title>Queuemaxxing</title>
 <style>
   :root {
-    --bg: #f4f5f7;
+    --bg: #f6f6f4;
     --card: #fff;
-    --ink: #1b1d22;
-    --muted: #5c6370;
-    --faint: #8a919c;
-    --line: #e3e6eb;
-    --blue: #2563eb;
-    --blue-soft: #eef3ff;
-    --green: #0f7a45;
-    --green-soft: #e9f7ef;
-    --amber: #9a6700;
-    --amber-soft: #fff6e5;
-    --red: #c0352b;
-    --violet: #6d28d9;
-    --violet-soft: #f3eeff;
-    --mono: ui-monospace, "SF Mono", Consolas, monospace;
+    --ink: #1c1c1a;
+    --muted: #6a6a64;
+    --line: #e4e4de;
+    --accent: #1f6feb;
+    --ready: #0f7a45;
+    --wait: #9a6700;
+    --err: #c0352b;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #101216;
-      --card: #1a1d24;
-      --ink: #eceef2;
-      --muted: #a8afbb;
-      --faint: #7b8290;
-      --line: #2c313c;
-      --blue: #6b93ff;
-      --blue-soft: #1c2744;
-      --green: #4eca8a;
-      --green-soft: #123024;
-      --amber: #e2b35c;
-      --amber-soft: #2c2314;
-      --red: #ff7a6e;
-      --violet: #a78bfa;
-      --violet-soft: #241b3a;
+      --bg: #121310;
+      --card: #1c1d1a;
+      --ink: #ecece6;
+      --muted: #a3a39a;
+      --line: #2e2f2a;
+      --accent: #6b93ff;
+      --ready: #4eca8a;
+      --wait: #e2b35c;
+      --err: #ff7a6e;
     }
   }
   * { box-sizing: border-box; }
@@ -49,619 +36,226 @@
     color: var(--ink);
     font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
-  .page { max-width: 1240px; margin: 0 auto; padding: 26px 20px 72px; }
+  .page { max-width: 920px; margin: 0 auto; padding: 28px 20px 64px; }
 
   header {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: 12px;
-    flex-wrap: wrap;
+    margin-bottom: 22px;
   }
-  h1 { font-size: 22px; margin: 0; font-weight: 700; }
-  .tagline { color: var(--muted); font-size: 14px; margin: 2px 0 0; }
-  .pills { display: flex; gap: 8px; flex-wrap: wrap; }
-  .pill {
-    font-size: 13px;
-    font-weight: 600;
-    padding: 5px 10px;
-    border-radius: 999px;
-    border: 1px solid var(--line);
-    background: var(--card);
-    color: var(--muted);
-    cursor: default;
-  }
-  .pill.mode { color: var(--blue); border-color: var(--blue); background: var(--blue-soft); }
-  .pill.down { color: var(--red); border-color: var(--red); }
-
-  .lede {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px 18px;
-    margin: 12px 0 20px;
-    padding: 10px 14px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--card);
-    color: var(--muted);
-    font-size: 13.5px;
-  }
-  .lede .what { color: var(--ink); font-weight: 600; }
-  .lede .step { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
-  .lede .stepno {
-    width: 18px;
-    height: 18px;
-    flex: 0 0 18px;
-    border-radius: 999px;
-    background: var(--blue-soft);
-    color: var(--blue);
-    font-weight: 700;
-    font-size: 11px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .lede .arrow { color: var(--faint); }
-  @media (max-width: 720px) { .lede .arrow { display: none; } }
+  h1 { font-size: 20px; margin: 0; font-weight: 700; }
+  .meta { margin: 0; color: var(--muted); font-size: 13px; }
+  .meta .down { color: var(--err); font-weight: 600; }
 
   .layout {
     display: grid;
-    grid-template-columns: 336px 1fr;
-    gap: 18px;
+    grid-template-columns: 280px 1fr;
+    gap: 20px;
     align-items: start;
   }
-  @media (max-width: 940px) { .layout { grid-template-columns: 1fr; } }
-  .stack { display: flex; flex-direction: column; gap: 18px; }
+  @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } }
 
   .card {
     background: var(--card);
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: 10px;
     padding: 16px 18px;
   }
-  .card h2 { margin: 0 0 4px; font-size: 15px; font-weight: 700; }
-  .card .sub { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
-
-  /* ---- rules card ---- */
-  .rules { list-style: none; margin: 0; padding: 0; counter-reset: rule; }
-  .rules li {
-    counter-increment: rule;
-    display: flex;
-    gap: 10px;
-    padding: 9px 0;
-    border-top: 1px solid var(--line);
-    font-size: 13.5px;
-    color: var(--muted);
-  }
-  .rules li:first-child { border-top: 0; padding-top: 2px; }
-  .rules li::before {
-    content: counter(rule);
-    flex: 0 0 22px;
-    height: 22px;
-    border-radius: 999px;
-    background: var(--blue-soft);
-    color: var(--blue);
-    font-weight: 700;
-    font-size: 12px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    margin-top: 1px;
-  }
-  .rules b { color: var(--ink); }
-  .rules .modeword { color: var(--blue); font-weight: 700; }
-  .durnote {
-    margin-top: 12px;
-    padding: 10px 12px;
-    background: var(--violet-soft);
-    border-radius: 8px;
+  h2 { margin: 0 0 12px; font-size: 14px; font-weight: 700; }
+  h3 {
+    margin: 0 0 8px;
     font-size: 13px;
+    font-weight: 600;
     color: var(--muted);
+    display: flex;
+    gap: 6px;
   }
-  .durnote b { color: var(--violet); }
+  h3 .n { font-variant-numeric: tabular-nums; }
 
-  /* ---- forms & buttons ---- */
-  label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 6px; }
-  .help { font-weight: 400; color: var(--faint); }
-  input, textarea, button { font: inherit; color: var(--ink); }
-  input, textarea {
+  label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 12px; }
+  input, button { font: inherit; color: var(--ink); }
+  input {
+    display: block;
     width: 100%;
-    padding: 9px 11px;
+    margin-top: 5px;
+    padding: 8px 10px;
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--bg);
   }
-  textarea { min-height: 60px; resize: vertical; }
-  input:focus, textarea:focus { outline: 2px solid var(--blue); outline-offset: 1px; }
-  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
-  .field { margin-bottom: 12px; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .hint { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
 
   button {
     cursor: pointer;
     border-radius: 8px;
-    padding: 9px 13px;
+    padding: 8px 12px;
     border: 1px solid var(--line);
     background: var(--bg);
     font-weight: 600;
   }
   button:hover:not(:disabled) { border-color: var(--muted); }
   button:disabled { opacity: .5; cursor: default; }
-  .primary { width: 100%; background: var(--blue); border-color: var(--blue); color: #fff; }
+  .primary {
+    width: 100%;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
   .primary:hover:not(:disabled) { filter: brightness(1.06); }
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-  .actions button { flex: 1; min-width: 130px; }
-  .live {
+
+  .queue-head {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin: 12px 0 0;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .queue-head h2 { margin: 0; }
+  .queue-head button { flex: 0 0 auto; }
+
+  .status {
+    margin: 0 0 12px;
     font-size: 13.5px;
     color: var(--muted);
-    cursor: pointer;
   }
-  .live input { width: auto; }
-
-  /* ---- scenarios ----
-     The scenario launcher is the first thing a tester should reach, so it
-     spans the full width above everything else and reads as the page's
-     primary action rather than as one card among several. */
-  .scenarios { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); margin-bottom: 18px; }
-  .scenarios h2 { color: var(--blue); }
-
-  .demos { display: grid; grid-template-columns: repeat(auto-fit, minmax(212px, 1fr)); gap: 8px; }
-  .demos button {
-    text-align: left;
-    display: grid;
-    grid-template-columns: 24px 1fr;
-    gap: 10px;
-    align-items: start;
-    padding: 11px 12px;
-    height: 100%;
-  }
-  .demos .num {
-    width: 24px;
-    height: 24px;
-    border-radius: 999px;
-    background: var(--blue-soft);
-    color: var(--blue);
-    font-weight: 700;
-    font-size: 12px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .demos .txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .demos button b { font-size: 13.5px; }
-  .demos .txt span { font-weight: 400; font-size: 12.5px; color: var(--muted); }
-  .demos button.running { border-color: var(--blue); background: var(--blue-soft); }
-  .demos button.running .num { background: var(--blue); color: #fff; }
-  #demo-stop {
-    display: none;
-    width: 100%;
-    margin-top: 8px;
-    background: var(--amber-soft);
-    border-color: var(--amber);
-    color: var(--amber);
-    text-align: center;
-  }
-  #demo-stop.visible { display: block; }
-
-  /* ---- quick add ----
-     One-click presets sit above the custom form so the common case (put a
-     job in and watch where it lands) costs a single click. */
-  .quick { display: flex; flex-wrap: wrap; gap: 6px; }
-  .quick button {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 6px;
-    padding: 7px 10px;
-    font-size: 13px;
-  }
-  .quick button i { font-style: normal; font-size: 11px; font-weight: 600; color: var(--faint); }
-  .quick button:hover:not(:disabled) i { color: var(--muted); }
-
-  .custom { margin-top: 12px; }
-  .custom summary {
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--blue);
-    padding: 4px 0;
-  }
-  .custom form { margin-top: 10px; }
-
-  .steps { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
-  .steps li { margin: 4px 0; }
-  .steps code { font-family: var(--mono); font-size: 12px; }
-  .steps b { color: var(--ink); }
-
-  /* ---- live queue ---- */
-  .counts { display: flex; gap: 26px; margin: 4px 0 14px; }
-  .counts b { display: block; font-size: 24px; line-height: 1.1; font-variant-numeric: tabular-nums; }
-  .counts span { font-size: 12.5px; color: var(--faint); }
-
-  .upnext-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-bottom: 8px;
-  }
-  .upnext-head h3 { margin: 0; font-size: 13.5px; }
-  .upnext-head .hint { font-size: 12px; color: var(--faint); }
-  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .seg button {
-    border: 0;
-    border-radius: 0;
-    padding: 4px 10px;
-    font-size: 12px;
-    background: var(--card);
-    color: var(--muted);
-  }
-  .seg button.on { background: var(--blue); color: #fff; }
-  .upnext {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    padding: 10px;
-    background: var(--bg);
-    border: 1px dashed var(--line);
-    border-radius: 10px;
-    margin-bottom: 16px;
-    min-height: 44px;
-    align-items: center;
-  }
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12.5px;
-    border: 1px solid var(--line);
-    background: var(--card);
-    border-radius: 999px;
-    padding: 4px 10px;
-    white-space: nowrap;
-  }
-  .chip .ord { color: var(--faint); font-weight: 700; }
-  .chip .p { font-family: var(--mono); font-size: 11.5px; color: var(--blue); font-weight: 700; }
-  .chip .eta { color: var(--amber); font-weight: 700; font-size: 11.5px; }
-  .chip.first { border-color: var(--green); background: var(--green-soft); }
-  .chip.later { border-style: dashed; }
-  .simtag {
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: .04em;
-    color: var(--violet);
-  }
-  .upnext .empty { border: 0; background: none; }
+  .status.err { color: var(--err); }
 
   .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  @media (max-width: 700px) { .cols { grid-template-columns: 1fr; } }
-  .col h3 {
-    margin: 0 0 4px;
-    font-size: 14px;
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .col.ready h3 { color: var(--green); }
-  .col.wait h3 { color: var(--amber); }
-  .n { font-weight: 500; color: var(--faint); font-size: 12.5px; }
-  .col p { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
+  @media (max-width: 560px) { .cols { grid-template-columns: 1fr; } }
 
-  .list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow: auto; }
+  .list { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow: auto; }
   .msg {
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 9px 11px;
     background: var(--bg);
   }
-  .msg .top {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    align-items: center;
+  .msg.next { border-color: var(--ready); }
+  .msg .body { word-break: break-word; }
+  .msg .meta {
+    margin-top: 3px;
     font-size: 12px;
-    color: var(--faint);
-    margin-bottom: 3px;
-  }
-  .msg .body { word-break: break-word; font-size: 14px; }
-  .pri { font-weight: 700; color: var(--ink); }
-  .next { border-color: var(--green); background: var(--green-soft); }
-  .wait .msg { background: var(--amber-soft); }
-  .tag {
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: .04em;
-    color: var(--green);
-  }
-  .eta { font-weight: 700; color: var(--amber); }
-  .empty { color: var(--faint); padding: 14px 4px; font-size: 13.5px; }
-  .more { font-size: 12.5px; color: var(--faint); margin-top: 8px; }
-
-  /* ---- activity log ---- */
-  .log { font-size: 13.5px; max-height: 300px; overflow: auto; }
-  .log > div { padding: 8px 0; border-bottom: 1px solid var(--line); }
-  .log > div:last-child { border-bottom: 0; }
-  .t { color: var(--faint); margin-right: 8px; font-variant-numeric: tabular-nums; font-size: 12.5px; }
-  .ok { color: var(--green); font-weight: 650; }
-  .warn { color: var(--amber); font-weight: 650; }
-  .err { color: var(--red); font-weight: 650; }
-  .info { color: var(--blue); font-weight: 650; }
-  .why { display: block; color: var(--muted); margin-top: 3px; font-size: 13px; }
-  .http {
-    float: right;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--faint);
-    margin-left: 8px;
-    margin-top: 2px;
-  }
-
-  /* ---- WAL panel ---- */
-  .walmeta {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    flex-wrap: wrap;
-    font-size: 12.5px;
-    color: var(--faint);
-    font-family: var(--mono);
-    margin-bottom: 10px;
-  }
-  .walmeta button { padding: 3px 10px; font-size: 12px; }
-  .wal { font-family: var(--mono); font-size: 12px; max-height: 280px; overflow: auto; }
-  .wal .rec {
+    color: var(--muted);
     display: flex;
     gap: 8px;
-    align-items: baseline;
-    padding: 5px 8px;
-    border-radius: 6px;
-    white-space: nowrap;
+    flex-wrap: wrap;
   }
-  .wal .rec:nth-child(odd) { background: var(--bg); }
-  .wal .seqn { color: var(--faint); flex: 0 0 44px; }
-  .op {
-    flex: 0 0 76px;
-    font-weight: 700;
-    font-size: 11px;
-    letter-spacing: .03em;
-  }
-  .op.enq { color: var(--green); }
-  .op.deq { color: var(--faint); }
-  .wal .det { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
-  .wal .det b { color: var(--ink); font-weight: 600; }
-  .wal .det .pchip { color: var(--blue); font-weight: 700; }
-  .wal .det .dchip { color: var(--amber); font-weight: 700; }
-  .wal pre {
-    margin: 0;
-    white-space: pre;
-    overflow: auto;
-    font-size: 11.5px;
-    line-height: 1.5;
-    color: var(--muted);
-  }
-  .walnote { margin-top: 10px; font-size: 12.5px; color: var(--muted); }
-  .walnote b { color: var(--violet); }
+  .next-tag { color: var(--ready); font-weight: 700; font-size: 11px; letter-spacing: .04em; }
+  .eta { color: var(--wait); font-weight: 700; }
+  .empty { color: var(--muted); padding: 10px 2px; font-size: 13.5px; }
+  .more { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
 
-  /* ---- API reference ---- */
-  details.api { margin-top: 18px; color: var(--muted); font-size: 13px; }
-  details.api summary { cursor: pointer; font-weight: 600; color: var(--ink); }
-  details.api table { border-collapse: collapse; margin-top: 10px; width: 100%; }
-  details.api td, details.api th {
-    text-align: left;
-    padding: 6px 10px 6px 0;
-    border-bottom: 1px solid var(--line);
-    vertical-align: top;
+  details.testing {
+    margin-top: 18px;
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    padding: 8px 14px 12px;
+    color: var(--muted);
+    font-size: 13px;
   }
-  details.api code { font-family: var(--mono); font-size: 12px; }
+  details.testing summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--muted);
+    padding: 4px 0;
+  }
+  .test-note { margin: 8px 0 10px; }
+  .test-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+  .test-row .lbl {
+    font-size: 12px;
+    font-weight: 600;
+    margin-right: 2px;
+    min-width: 72px;
+  }
+  .test-row button {
+    padding: 5px 9px;
+    font-size: 12.5px;
+    font-weight: 600;
+    text-align: left;
+  }
+  .test-row button i { font-style: normal; font-weight: 500; color: var(--muted); }
+  .test-row button.running { border-color: var(--accent); color: var(--accent); }
+  #demo-stop {
+    display: none;
+    padding: 5px 9px;
+    font-size: 12.5px;
+  }
+  #demo-stop.visible { display: inline-block; }
 </style>
 </head>
 <body>
 <div class="page">
   <header>
-    <div>
-      <h1>Queuemaxxing</h1>
-      <p class="tagline">A durable queue with priority, delay, and FIFO or LIFO order. One Go binary, one log file.</p>
-    </div>
-    <div class="pills">
-      <span class="pill mode" id="mode" title="The ordering mode is fixed per process. Restart with:  go run ./cmd/server -mode LIFO">…</span>
-      <span class="pill" id="conn">connecting…</span>
-    </div>
+    <h1>Queuemaxxing</h1>
+    <p class="meta"><span id="mode">…</span> · <span id="conn">connecting</span></p>
   </header>
-  <div class="lede">
-    <span class="what">A live message queue you can test in the browser.</span>
-    <span class="step"><span class="stepno">1</span>Click a numbered scenario to watch it prove itself</span>
-    <span class="arrow">&rarr;</span>
-    <span class="step"><span class="stepno">2</span>Or add a job yourself</span>
-    <span class="arrow">&rarr;</span>
-    <span class="step"><span class="stepno">3</span>Press <b>Take next</b> and see why it won</span>
-  </div>
-
-  <div class="card scenarios">
-    <h2>Run a scenario</h2>
-    <p class="sub">Jobs from an online shop. Each scenario predicts the order they come out in, then proves it. Every button uses the public HTTP API.</p>
-    <div class="demos">
-      <button type="button" data-demo="priority">
-        <span class="num">1</span>
-        <span class="txt">
-          <b>Payments jump the line</b>
-          <span>Priority beats arrival order.</span>
-        </span>
-      </button>
-      <button type="button" data-demo="delay">
-        <span class="num">2</span>
-        <span class="txt">
-          <b>The backoff timer</b>
-          <span>A delayed job stays hidden until it is due.</span>
-        </span>
-      </button>
-      <button type="button" data-demo="tiebreak">
-        <span class="num">3</span>
-        <span class="txt">
-          <b>Three identical refunds</b>
-          <span>Same priority, so the tie-break decides.</span>
-        </span>
-      </button>
-      <button type="button" data-demo="checkout">
-        <span class="num">4</span>
-        <span class="txt">
-          <b>Black Friday checkout</b>
-          <span>All three rules at once.</span>
-        </span>
-      </button>
-      <button type="button" data-demo="burst">
-        <span class="num">5</span>
-        <span class="txt">
-          <b>Twenty storefronts at once</b>
-          <span>20 orders in parallel, none lost.</span>
-        </span>
-      </button>
-    </div>
-    <button type="button" id="demo-stop">Stop the running scenario</button>
-  </div>
 
   <div class="layout">
-    <div class="stack">
-      <div class="card">
-        <h2>Add a job</h2>
-        <p class="sub">One click each.</p>
-        <div class="quick">
-          <button type="button" class="q" data-kind="capture payment for order" data-pri="9" data-delay="0">Payment <i>p9</i></button>
-          <button type="button" class="q" data-kind="refund order" data-pri="5" data-delay="0">Refund <i>p5</i></button>
-          <button type="button" class="q" data-kind="email receipt for order" data-pri="1" data-delay="0">Receipt <i>p1</i></button>
-          <button type="button" class="q" data-kind="retry webhook for order" data-pri="10" data-delay="10">Retry <i>p10, 10s</i></button>
-          <button type="button" class="q" data-kind="reindex catalog after order" data-pri="3" data-delay="0">Reindex <i>p3</i></button>
+    <section class="card">
+      <h2>Add a message</h2>
+      <form id="enq">
+        <label>Message
+          <input id="payload" required placeholder="send invoice 42" autocomplete="off">
+        </label>
+        <div class="row">
+          <label>Priority
+            <input id="priority" type="number" value="0" step="1">
+          </label>
+          <label>Delay (seconds)
+            <input id="delay" type="number" value="0" min="0" max="315360000" step="1">
+          </label>
         </div>
+        <button class="primary" type="submit">Add</button>
+      </form>
+      <p class="hint">Higher priority goes first. A delay keeps the message hidden until it is due.</p>
+    </section>
 
-        <details class="custom" open>
-          <summary>Write your own</summary>
-          <form id="enq">
-            <div class="field">
-              <label for="payload">Job</label>
-              <textarea id="payload" required placeholder="ship order 1841"></textarea>
-            </div>
-            <div class="pair">
-              <div>
-                <label for="priority">Priority <span class="help">higher first</span></label>
-                <input id="priority" type="number" value="0" step="1">
-              </div>
-              <div>
-                <label for="delay">Delay <span class="help">seconds</span></label>
-                <input id="delay" type="number" value="0" min="0" max="315360000" step="1">
-              </div>
-            </div>
-            <button class="primary" type="submit">Add to queue</button>
-          </form>
-        </details>
-
-        <div class="actions">
-          <button type="button" id="deq">Take next</button>
-          <button type="button" id="drain">Take all ready</button>
-        </div>
-        <label class="live"><input type="checkbox" id="auto" checked> Live refresh</label>
+    <section class="card">
+      <div class="queue-head">
+        <h2>Queue</h2>
+        <button type="button" id="deq">Take next</button>
       </div>
-
-      <div class="card">
-        <h2>How the order is decided</h2>
-        <ol class="rules">
-          <li><span><b>Is it due?</b> Delayed jobs stay hidden until their timer ends.</span></li>
-          <li><span><b>Priority.</b> The higher number goes first.</span></li>
-          <li><span><b>Tie?</b> <span id="rule3">…</span></span></li>
-        </ol>
-        <div class="durnote">
-          <b>Durable:</b> every job is written to <code>queue.wal</code> and fsynced before the
-          server replies. Nothing is lost on a crash.
+      <p class="status" id="status" hidden></p>
+      <div class="cols">
+        <div>
+          <h3>Ready <span class="n" id="c-ready">0</span></h3>
+          <div class="list" id="l-ready"></div>
+          <div class="more" id="t-ready" hidden></div>
+        </div>
+        <div>
+          <h3>Waiting <span class="n" id="c-delayed">0</span></h3>
+          <div class="list" id="l-delayed"></div>
+          <div class="more" id="t-delayed" hidden></div>
         </div>
       </div>
-
-      <div class="card">
-        <h2>Crash test</h2>
-        <ol class="steps">
-          <li>Add a few jobs. Put a delay on one.</li>
-          <li>Stop the server with <code>Ctrl+C</code>. This page shows <b>server down</b>.</li>
-          <li>Start it again: <code>go run ./cmd/server</code></li>
-          <li>Reload. Everything is back, timers included.</li>
-        </ol>
-      </div>
-    </div>
-
-    <div class="stack">
-      <div class="card">
-        <h2>The queue, right now</h2>
-        <p class="sub">Read only. Watching never consumes a job.</p>
-        <div class="counts">
-          <div><b id="s-total">0</b><span>stored</span></div>
-          <div><b id="s-ready">0</b><span>ready</span></div>
-          <div><b id="s-delayed">0</b><span>waiting on a timer</span></div>
-        </div>
-
-        <div class="upnext-head">
-          <h3>Up next: the exact order</h3>
-          <span class="seg" id="modeseg" title="The server's mode is fixed per process. The other button re-runs the same rules client-side so you can compare without restarting.">
-            <button type="button" data-seg="live">…</button>
-            <button type="button" data-seg="whatif">…</button>
-          </span>
-        </div>
-        <div class="upnext" id="upnext"><span class="empty">connecting…</span></div>
-
-        <div class="cols">
-          <div class="col ready">
-            <h3>Ready now <span class="n" id="c-ready">0</span></h3>
-            <p>The green card is what <b>Take next</b> returns.</p>
-            <div class="list" id="l-ready"></div>
-            <div class="more" id="t-ready" hidden></div>
-          </div>
-          <div class="col wait">
-            <h3>Waiting (delayed) <span class="n" id="c-delayed">0</span></h3>
-            <p>Hidden until the countdown hits zero, then they move left.</p>
-            <div class="list" id="l-delayed"></div>
-            <div class="more" id="t-delayed" hidden></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>What just happened, and why</h2>
-        <p class="sub">Newest first. Every action says which rule decided it.</p>
-        <div class="log" id="log"><div>Run a scenario or add a job to start.</div></div>
-      </div>
-
-      <div class="card">
-        <h2>On disk: the write-ahead log</h2>
-        <p class="sub">The newest records of the append-only file, newest first. Every line was <b>fsynced before the server replied</b>.</p>
-        <div class="walmeta">
-          <span id="walinfo">…</span>
-          <button type="button" id="walraw">show raw JSONL</button>
-        </div>
-        <div class="wal" id="wal"></div>
-        <p class="walnote"><b>This file is the queue.</b> On restart the server replays it: each <span style="color:var(--green)">ENQUEUE</span> inserts, each <span style="color:var(--faint)">DEQUEUE</span> deletes. What remains is exactly the undelivered jobs.</p>
-      </div>
-
-      <details class="api">
-        <summary>API reference</summary>
-        <table>
-          <tr><th>Call</th><th>Meaning</th><th>Try it</th></tr>
-          <tr><td><code>POST /enqueue</code></td><td>Add a message. 201 + the stored message.</td>
-              <td><code>curl -X POST localhost:8080/enqueue -d '{"payload":"hi","priority":5,"delay_seconds":0}'</code></td></tr>
-          <tr><td><code>POST /dequeue</code></td><td>Take the next message. 200 + message, or 204 if nothing is visible. Destructive.</td>
-              <td><code>curl -X POST localhost:8080/dequeue</code></td></tr>
-          <tr><td><code>GET /messages</code></td><td>Read-only snapshot of both lists, in exact order.</td>
-              <td><code>curl localhost:8080/messages</code></td></tr>
-          <tr><td><code>GET /wal</code></td><td>Read-only tail of the write-ahead log.</td>
-              <td><code>curl localhost:8080/wal</code></td></tr>
-          <tr><td><code>GET /stats</code></td><td>Counts: total / ready / delayed.</td>
-              <td><code>curl localhost:8080/stats</code></td></tr>
-          <tr><td><code>GET /health</code></td><td>Liveness probe.</td>
-              <td><code>curl localhost:8080/health</code></td></tr>
-        </table>
-      </details>
-    </div>
+    </section>
   </div>
+
+  <details class="testing" open>
+    <summary>For testing</summary>
+    <p class="test-note">These enqueue sample jobs so you can try the queue without typing.</p>
+    <div class="test-row">
+      <span class="lbl">Add one</span>
+      <button type="button" class="q" data-kind="capture payment for order" data-pri="9" data-delay="0">Payment <i>p9</i></button>
+      <button type="button" class="q" data-kind="refund order" data-pri="5" data-delay="0">Refund <i>p5</i></button>
+      <button type="button" class="q" data-kind="email receipt for order" data-pri="1" data-delay="0">Receipt <i>p1</i></button>
+      <button type="button" class="q" data-kind="retry webhook for order" data-pri="10" data-delay="10">Retry <i>p10, 10s</i></button>
+      <button type="button" class="q" data-kind="reindex catalog after order" data-pri="3" data-delay="0">Reindex <i>p3</i></button>
+    </div>
+    <div class="test-row">
+      <span class="lbl">Scenarios</span>
+      <button type="button" data-demo="priority">Payments jump the line</button>
+      <button type="button" data-demo="delay">The backoff timer</button>
+      <button type="button" data-demo="tiebreak">Three identical refunds</button>
+      <button type="button" data-demo="checkout">Black Friday checkout</button>
+      <button type="button" data-demo="burst">Twenty storefronts at once</button>
+      <button type="button" id="demo-stop">Stop</button>
+    </div>
+  </details>
 </div>
 
 <script>
@@ -671,12 +265,7 @@ const $ = (id) => document.getElementById(id);
 
 let clockSkewMs = 0;
 let snapshot = null;
-let prevSnapshot = null;
-let walTail = null;
-let walShowRaw = false;
-let whatIf = false; // up-next strip: false = server mode, true = the other mode
-let polling = null;
-let wasConnected = null;
+const demo = { running: false, stop: false };
 
 const serverNow = () => Date.now() + clockSkewMs;
 
@@ -685,18 +274,35 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
-function fmtBytes(n) {
-  if (n < 1024) return n + " B";
-  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KiB";
-  return (n / (1024 * 1024)).toFixed(1) + " MiB";
+function setStatus(text, isError) {
+  const el = $("status");
+  if (!text) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  el.hidden = false;
+  el.textContent = text;
+  el.classList.toggle("err", Boolean(isError));
 }
 
-function shortPayload(s, n) {
-  s = String(s);
-  return s.length > n ? s.slice(0, n - 1) + "…" : s;
+function setConnected(ok) {
+  const el = $("conn");
+  el.textContent = ok ? "connected" : "server down";
+  el.classList.toggle("down", !ok);
+  if (!ok) setStatus("Can't reach the server.", true);
+  setControlsEnabled(ok);
 }
 
-/* ---------------- HTTP ---------------- */
+function setControlsEnabled(ok) {
+  const busy = demo.running || !ok;
+  $("enq").querySelector("button").disabled = busy;
+  $("deq").disabled = busy;
+  document.querySelectorAll(".testing button").forEach((b) => {
+    if (b.id === "demo-stop") return;
+    b.disabled = busy;
+  });
+}
 
 async function api(method, path, body) {
   const opts = { method, headers: {} };
@@ -705,101 +311,25 @@ async function api(method, path, body) {
     opts.body = JSON.stringify(body);
   }
   const res = await fetch(path, opts);
-  const label = method + " " + path.split("?")[0] + " → " + res.status;
-  if (res.status === 204) return { status: 204, body: null, label };
+  if (res.status === 204) return { status: 204, body: null };
   const text = await res.text();
   let parsed = null;
   try { parsed = text ? JSON.parse(text) : null; } catch (e) { parsed = null; }
   if (!res.ok) {
-    const msg = (parsed && parsed.error) || text || ("HTTP " + res.status);
-    const err = new Error(msg);
-    err.label = label;
-    throw err;
+    throw new Error((parsed && parsed.error) || text || ("HTTP " + res.status));
   }
-  return { status: res.status, body: parsed, label };
+  return { status: res.status, body: parsed };
 }
-
-/* ---------------- activity log ---------------- */
-
-function log(kind, text, why, httpLabel) {
-  const el = $("log");
-  if (el.dataset.fresh !== "1") { el.innerHTML = ""; el.dataset.fresh = "1"; }
-  const row = document.createElement("div");
-  row.innerHTML =
-    (httpLabel ? '<span class="http">' + esc(httpLabel) + "</span>" : "") +
-    '<span class="t">' + new Date().toTimeString().slice(0, 8) + "</span>" +
-    '<span class="' + kind + '">' + esc(text) + "</span>" +
-    (why ? '<span class="why">' + esc(why) + "</span>" : "");
-  el.prepend(row);
-  while (el.childElementCount > 60) el.lastElementChild.remove();
-}
-
-function setConnected(ok) {
-  const el = $("conn");
-  el.textContent = ok ? "connected" : "server down";
-  el.classList.toggle("down", !ok);
-  if (wasConnected === true && !ok) {
-    log("err", "Lost the server", "If you killed it for the crash test, start it again and reload. The queue rebuilds from queue.wal.");
-  }
-  if (wasConnected === false && ok) {
-    log("info", "Server is back", "State below was recovered by replaying the write-ahead log.");
-  }
-  wasConnected = ok;
-}
-
-/* ---------------- the selection rule, client-side ----------------
-   Mirrors pkg/engine exactly: visible first, then highest priority,
-   ties by seq (FIFO smallest / LIFO largest). Used only to *predict*
-   and cross-check; the server's answer is always authoritative. */
-
-function cmpFor(mode) {
-  return (a, b) => {
-    if (a.priority !== b.priority) return b.priority - a.priority;
-    return mode === "LIFO" ? b.seq - a.seq : a.seq - b.seq;
-  };
-}
-
-// simulateDrain returns [{m, atMs}]: the exact order the queue drains in
-// if nothing new arrives, with atMs = when each message becomes takeable.
-//
-// popEveryMs is how long the consumer takes between two dequeues. It matters:
-// a delayed job matures on the wall clock, so a consumer that pauses between
-// pops gives a backoff time to elapse and can legitimately reach a different
-// order than one draining flat out. Pass 0 (the default) for "drain it all
-// this instant", which is what the up-next strip answers; pass the runner's
-// real cadence when predicting a scenario the page is about to play out.
-function simulateDrain(snap, mode, popEveryMs) {
-  const step = popEveryMs || 0;
-  const cmp = cmpFor(mode);
-  const ready = snap.ready.slice();
-  const delayed = snap.delayed
-    .map((m) => ({ m, at: new Date(m.available_at).getTime() }))
-    .sort((x, y) => x.at - y.at);
-  let t = new Date(snap.now).getTime();
-  const out = [];
-  while (ready.length > 0 || delayed.length > 0) {
-    while (delayed.length > 0 && delayed[0].at <= t) ready.push(delayed.shift().m);
-    if (ready.length === 0) { t = delayed[0].at; continue; }
-    ready.sort(cmp);
-    out.push({ m: ready.shift(), atMs: t });
-    t += step;
-  }
-  return out;
-}
-
-/* ---------------- rendering ---------------- */
 
 function messageCard(m, opts) {
   const el = document.createElement("div");
   el.className = "msg" + (opts.next ? " next" : "");
-  const bits = [
-    '<span class="pri">priority ' + esc(m.priority) + "</span>",
-    "<span>#" + esc(m.seq) + "</span>",
-  ];
-  if (opts.next) bits.push('<span class="tag">NEXT OUT</span>');
+  const bits = ["priority " + esc(m.priority)];
+  if (opts.next) bits.unshift('<span class="next-tag">NEXT</span>');
   if (opts.countdown) bits.push('<span class="eta" data-at="' + esc(m.available_at) + '">…</span>');
-  el.innerHTML = '<div class="top">' + bits.join("") + "</div>" +
-    '<div class="body">' + esc(m.payload) + "</div>";
+  el.innerHTML =
+    '<div class="body">' + esc(m.payload) + "</div>" +
+    '<div class="meta">' + bits.join(" · ") + "</div>";
   return el;
 }
 
@@ -820,53 +350,6 @@ function renderList(container, msgs, opts) {
   });
 }
 
-function renderUpNext(snap) {
-  const container = $("upnext");
-  const liveMode = snap.mode;
-  const otherMode = liveMode === "FIFO" ? "LIFO" : "FIFO";
-  const mode = whatIf ? otherMode : liveMode;
-
-  const seg = $("modeseg").querySelectorAll("button");
-  seg[0].textContent = liveMode + " · live";
-  seg[1].textContent = otherMode + " · what-if";
-  seg[0].classList.toggle("on", !whatIf);
-  seg[1].classList.toggle("on", whatIf);
-
-  container.innerHTML = "";
-  const order = simulateDrain(snap, mode);
-  if (order.length === 0) {
-    container.innerHTML = '<span class="empty">Queue is empty. Run a scenario above, or add a job.</span>';
-    return;
-  }
-  if (whatIf) {
-    const tag = document.createElement("span");
-    tag.className = "simtag";
-    tag.textContent = "SIMULATED " + mode + " ⇒";
-    tag.title = "Client-side re-run of the same rules under " + mode + ". The server is running " + liveMode + ".";
-    container.appendChild(tag);
-  }
-  const nowMs = serverNow();
-  const shown = order.slice(0, 12);
-  shown.forEach((e, i) => {
-    const chip = document.createElement("span");
-    const waits = e.atMs > nowMs + 400;
-    chip.className = "chip" + (i === 0 && !whatIf ? " first" : "") + (waits ? " later" : "");
-    chip.title = e.m.payload + "  (priority " + e.m.priority + ", seq #" + e.m.seq + ")";
-    chip.innerHTML =
-      '<span class="ord">' + (i + 1) + "</span>" +
-      '<span class="p">p' + esc(e.m.priority) + "</span>" +
-      "<span>" + esc(shortPayload(e.m.payload, 26)) + "</span>" +
-      (waits ? '<span class="eta" data-at="' + new Date(e.atMs).toISOString() + '">…</span>' : "");
-    container.appendChild(chip);
-  });
-  if (order.length > shown.length) {
-    const more = document.createElement("span");
-    more.className = "empty";
-    more.textContent = "+" + (order.length - shown.length) + " more";
-    container.appendChild(more);
-  }
-}
-
 function tickCountdowns() {
   const now = serverNow();
   document.querySelectorAll(".eta[data-at]").forEach((el) => {
@@ -876,29 +359,19 @@ function tickCountdowns() {
 }
 
 function render(snap) {
-  const modeEl = $("mode");
-  modeEl.textContent = snap.mode === "LIFO"
-    ? "Mode: LIFO, ties go to the newest"
-    : "Mode: FIFO, ties go to the oldest";
-  $("rule3").innerHTML = snap.mode === "LIFO"
-    ? 'This server runs <span class="modeword">LIFO</span>: the <b>newest</b> message wins the tie. (In FIFO it would be the oldest.)'
-    : 'This server runs <span class="modeword">FIFO</span>: the <b>oldest</b> message wins the tie. (In LIFO it would be the newest.)';
-
-  $("s-total").textContent = snap.stats.total;
-  $("s-ready").textContent = snap.stats.ready;
-  $("s-delayed").textContent = snap.stats.delayed;
+  $("mode").textContent = snap.mode === "LIFO"
+    ? "LIFO · newest first"
+    : "FIFO · oldest first";
   $("c-ready").textContent = snap.stats.ready;
   $("c-delayed").textContent = snap.stats.delayed;
 
-  renderUpNext(snap);
-
   renderList($("l-ready"), snap.ready, {
     markNext: true,
-    emptyText: "Nothing ready. Take next returns 204 (no content).",
+    emptyText: "Nothing ready.",
   });
   renderList($("l-delayed"), snap.delayed, {
     countdown: true,
-    emptyText: "No timers running.",
+    emptyText: "Nothing waiting.",
   });
 
   const tr = $("t-ready");
@@ -913,247 +386,98 @@ function render(snap) {
   tickCountdowns();
 }
 
-// noteMaturities logs delayed→ready transitions the poller catches, so the
-// tester sees rule 1 firing without doing anything.
-function noteMaturities(prev, cur) {
-  if (!prev) return;
-  const prevDelayed = new Map(prev.delayed.map((m) => [m.id, m]));
-  const nowReady = new Set(cur.ready.map((m) => m.id));
-  prevDelayed.forEach((m, id) => {
-    if (nowReady.has(id)) {
-      log("info", "Timer ended. #" + m.seq + " is now visible",
-        "“" + shortPayload(m.payload, 60) + "” (priority " + m.priority + ") moved Waiting → Ready and joins the race under rules 2–3.");
-    }
-  });
-}
-
-/* ---------------- polling ---------------- */
-
 async function refresh() {
   try {
     const res = await api("GET", "/messages?limit=200");
     clockSkewMs = new Date(res.body.now).getTime() - Date.now();
-    prevSnapshot = snapshot;
     snapshot = res.body;
-    noteMaturities(prevSnapshot, snapshot);
     render(snapshot);
     setConnected(true);
+    if ($("status").classList.contains("err") && $("status").textContent === "Can't reach the server.") {
+      setStatus("");
+    }
   } catch (err) {
     setConnected(false);
   }
 }
 
-async function refreshWal() {
-  try {
-    const res = await api("GET", "/wal?limit=40");
-    walTail = res.body;
-    renderWal();
-  } catch (err) { /* the conn pill already reports downtime */ }
-}
-
-function renderWal() {
-  if (!walTail) return;
-  const meta = $("walinfo");
-  const n = walTail.records.length;
-  meta.textContent = walTail.path + " · " + fmtBytes(walTail.size_bytes) +
-    " · " + (walTail.truncated ? "last " + n + " records" : n + " record" + (n === 1 ? "" : "s"));
-
-  const el = $("wal");
-  if (n === 0) {
-    el.innerHTML = '<div class="empty">Empty. The first enqueue writes the first line.</div>';
-    return;
-  }
-
-  if (walShowRaw) {
-    const lines = walTail.records.slice().reverse().map((r) => JSON.stringify(r));
-    el.innerHTML = "<pre>" + esc(lines.join("\n")) + "</pre>";
-    return;
-  }
-
-  // Enrich tombstones with the payload their ID refers to, when the
-  // matching ENQUEUE is still inside the tail window.
-  const byID = new Map();
-  walTail.records.forEach((r) => {
-    if (r.op === "ENQUEUE" && r.id) byID.set(r.id, r);
-  });
-
-  el.innerHTML = "";
-  walTail.records.slice().reverse().forEach((r) => {
-    const row = document.createElement("div");
-    row.className = "rec";
-    row.title = JSON.stringify(r);
-    let det = "";
-    if (r.op === "ENQUEUE") {
-      const delayMs = new Date(r.available_at).getTime() - new Date(r.enqueued_at).getTime();
-      det = "msg#" + esc(r.msg_seq) + ' <span class="pchip">p' + esc(r.priority) + "</span> " +
-        (delayMs > 500 ? '<span class="dchip">+' + Math.round(delayMs / 1000) + "s</span> " : "") +
-        "<b>" + esc(shortPayload(r.payload, 46)) + "</b>";
-    } else if (r.op === "DEQUEUE") {
-      const src = byID.get(r.id);
-      det = src
-        ? "consumed msg#" + esc(src.msg_seq) + " <b>" + esc(shortPayload(src.payload, 40)) + "</b>"
-        : "consumed " + esc(String(r.id).slice(0, 8)) + "…";
-    } else {
-      det = esc(r.op || "?");
-    }
-    row.innerHTML =
-      '<span class="seqn">#' + esc(r.seq) + "</span>" +
-      '<span class="op ' + (r.op === "ENQUEUE" ? "enq" : "deq") + '">' + esc(r.op) + "</span>" +
-      '<span class="det">' + det + "</span>";
-    el.appendChild(row);
-  });
-}
-
-/* ---------------- explanations ---------------- */
-
-function explainWin(msg, before) {
-  if (!before) return "";
-  const mode = before.mode;
-  const parts = [];
-
-  const delayedMs = new Date(msg.available_at).getTime() - new Date(msg.enqueued_at).getTime();
-  if (delayedMs > 500) {
-    parts.push("its " + Math.round(delayedMs / 1000) + "s delay had elapsed (rule 1)");
-  }
-
-  const others = (before.ready || []).filter((m) => m.id !== msg.id);
-  const higher = others.filter((m) => m.priority > msg.priority);
-  const tied = others.filter((m) => m.priority === msg.priority);
-  const lower = others.filter((m) => m.priority < msg.priority);
-
-  if (higher.length > 0) {
-    parts.push("unexpected: " + higher.length + " visible job(s) had higher priority. The page snapshot was probably stale.");
-  } else if (tied.length > 0) {
-    const rival = tied.sort(cmpFor(mode))[0];
-    parts.push("it tied at priority " + msg.priority + " with " + tied.length + " other(s), and " + mode +
-      " serves the " + (mode === "LIFO" ? "newest" : "oldest") + " first, so #" + msg.seq +
-      " beats #" + rival.seq + " (rule 3)");
-  } else if (lower.length > 0) {
-    const best = Math.max.apply(null, lower.map((m) => m.priority));
-    parts.push("priority " + msg.priority + " outranked everything else visible (next best: " + best + ") (rule 2)");
-  } else {
-    parts.push("it was the only visible message");
-  }
-
-  const blocked = (before.delayed || []).filter((m) => m.priority > msg.priority);
-  if (blocked.length > 0) {
-    const b = blocked[0];
-    const waitS = Math.max(0, (new Date(b.available_at).getTime() - serverNow()) / 1000).toFixed(1);
-    parts.push("note: “" + shortPayload(b.payload, 30) + "” (priority " + b.priority +
-      ") outranks it but is still hidden for " + waitS + "s (rule 1 beats rule 2)");
-  }
-  return "Why: " + parts.join(". ") + ".";
-}
-
-function explainEmpty(before) {
-  if (!before || before.stats.total === 0) return "The queue is completely empty.";
-  if (before.stats.delayed > 0) {
-    const next = before.delayed[0];
-    const waitS = Math.max(0, (new Date(next.available_at).getTime() - serverNow()) / 1000).toFixed(1);
-    return before.stats.delayed + " job(s) exist but are still on timers. The soonest (“" +
-      shortPayload(next.payload, 30) + "”) unlocks in " + waitS + "s. Delay hides them even from an explicit dequeue.";
-  }
-  return "Nothing visible.";
-}
-
-/* ---------------- manual controls ---------------- */
-
-// whyAdded explains where a freshly added job landed, in the vocabulary of
-// the three rules. Shared by the quick-add buttons and the custom form.
-function whyAdded(delaySeconds) {
-  return delaySeconds > 0
-    ? "It waits " + delaySeconds + "s (rule 1), then competes on priority. Already fsynced to the log."
-    : "It is ready now. Already fsynced to the log.";
-}
-
 async function addJob(payload, priority, delaySeconds) {
-  try {
-    const res = await api("POST", "/enqueue", {
-      payload: payload, priority: priority, delay_seconds: delaySeconds,
-    });
-    log("ok", "Added #" + res.body.seq + " “" + shortPayload(payload, 40) + "” (priority " + priority + ")",
-      whyAdded(delaySeconds), res.label);
-  } catch (err) {
-    log("err", err.message, undefined, err.label);
-  }
-  refresh(); refreshWal();
-}
-
-// Quick-add buttons carry their job shape in data attributes. Order numbers
-// keep climbing so repeated clicks stay distinguishable in the lists.
-let nextOrder = 1841;
-document.querySelectorAll(".quick button").forEach((b) => {
-  b.addEventListener("click", () => {
-    const kind = b.dataset.kind;
-    const priority = Number(b.dataset.pri || 0);
-    const delaySeconds = Number(b.dataset.delay || 0);
-    addJob(kind + " " + nextOrder++, priority, delaySeconds);
+  await api("POST", "/enqueue", {
+    payload: payload, priority: priority, delay_seconds: delaySeconds,
   });
-});
+}
 
 $("enq").addEventListener("submit", async (e) => {
   e.preventDefault();
   const payload = $("payload").value;
   const priority = Number($("priority").value || 0);
   const delaySeconds = Number($("delay").value || 0);
-  await addJob(payload, priority, delaySeconds);
-  $("payload").value = "";
-  $("payload").focus();
-});
-
-$("deq").addEventListener("click", async () => {
-  const before = snapshot;
   try {
-    const res = await api("POST", "/dequeue");
-    if (res.status === 204) {
-      log("warn", "Nothing to take (204)", explainEmpty(before), res.label);
-    } else {
-      log("ok", "Took #" + res.body.seq + " “" + shortPayload(res.body.payload, 40) + "” (priority " + res.body.priority + ")",
-        explainWin(res.body, before), res.label);
-    }
+    await addJob(payload, priority, delaySeconds);
+    $("payload").value = "";
+    $("payload").focus();
+    setStatus(delaySeconds > 0
+      ? "Added. Waiting " + delaySeconds + "s."
+      : "Added.");
   } catch (err) {
-    log("err", err.message, undefined, err.label);
+    setStatus(err.message, true);
   }
-  refresh(); refreshWal();
+  refresh();
 });
 
-$("drain").addEventListener("click", async () => {
-  let n = 0;
-  try {
-    for (;;) {
-      const res = await api("POST", "/dequeue");
-      if (res.status === 204) break;
-      n++;
-      if (n > 5000) break;
+let nextOrder = 1841;
+document.querySelectorAll(".q").forEach((b) => {
+  b.addEventListener("click", async () => {
+    const delaySeconds = Number(b.dataset.delay || 0);
+    try {
+      await addJob(b.dataset.kind + " " + nextOrder++, Number(b.dataset.pri || 0), delaySeconds);
+      setStatus(delaySeconds > 0
+        ? "Added test job. Waiting " + delaySeconds + "s."
+        : "Added test job.");
+    } catch (err) {
+      setStatus(err.message, true);
     }
-    log("ok", "Took " + n + " ready message(s)",
-      (snapshot && snapshot.stats.delayed > 0)
-        ? "Delayed jobs were not touched. They stay hidden until their timers end, so even a full drain cannot reach them."
-        : "The queue is now empty.");
-  } catch (err) {
-    log("err", err.message, undefined, err.label);
-  }
-  refresh(); refreshWal();
+    refresh();
+  });
 });
 
-/* ---------------- guided demos ---------------- */
+function shortPayload(s, n) {
+  s = String(s);
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+
+function cmpFor(mode) {
+  return (a, b) => {
+    if (a.priority !== b.priority) return b.priority - a.priority;
+    return mode === "LIFO" ? b.seq - a.seq : a.seq - b.seq;
+  };
+}
+
+function simulateDrain(snap, mode, popEveryMs) {
+  const step = popEveryMs || 0;
+  const cmp = cmpFor(mode);
+  const ready = snap.ready.slice();
+  const delayed = snap.delayed
+    .map((m) => ({ m, at: new Date(m.available_at).getTime() }))
+    .sort((x, y) => x.at - y.at);
+  let t = new Date(snap.now).getTime();
+  const out = [];
+  while (ready.length > 0 || delayed.length > 0) {
+    while (delayed.length > 0 && delayed[0].at <= t) ready.push(delayed.shift().m);
+    if (ready.length === 0) { t = delayed[0].at; continue; }
+    ready.sort(cmp);
+    out.push({ m: ready.shift(), atMs: t });
+    t += step;
+  }
+  return out;
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-// DEMO_POP_MS is the pause a scenario leaves between two dequeues so a
-// tester can read each pick. The same constant feeds the prediction, so the
-// predicted order and the played-out order can never drift apart.
 const DEMO_POP_MS = 1100;
 
-/* Every scenario is a shift at the same online shop, so a tester meets one
-   cast of jobs instead of five unrelated worlds. Scenario 4 is deliberately
-   the exact five-job script cmd/client runs, so the console and the worker
-   tell the same story. */
 const DEMOS = {
   priority: {
-    n: 1,
     title: "Payments jump the line",
-    intro: "Three jobs arrive in this order: receipt (p1), card capture (p9), catalog reindex (p5). Priority reorders them, so the money goes first.",
     items: [
       { payload: "email receipt for order 1841", priority: 1, delay_seconds: 0 },
       { payload: "capture $420 card payment for order 1842", priority: 9, delay_seconds: 0 },
@@ -1161,18 +485,14 @@ const DEMOS = {
     ],
   },
   delay: {
-    n: 2,
     title: "The backoff timer",
-    intro: "Stripe wants a retry in 8 seconds. That retry is priority 9, the most important job here, but a delayed job is hidden. A priority-1 cleanup goes first, then the retry the moment its timer ends.",
     items: [
       { payload: "retry Stripe webhook for order 1842 (backoff 8s)", priority: 9, delay_seconds: 8 },
       { payload: "purge expired carts (nightly cleanup)", priority: 1, delay_seconds: 0 },
     ],
   },
   tiebreak: {
-    n: 3,
     title: "Three identical refunds",
-    intro: "Three refunds, all priority 5. Rules 1 and 2 cannot separate them, so the tie-break decides. Use the what-if toggle to compare FIFO with LIFO.",
     items: [
       { payload: "refund order 1841 (arrived first)", priority: 5, delay_seconds: 0 },
       { payload: "refund order 1842 (arrived second)", priority: 5, delay_seconds: 0 },
@@ -1180,9 +500,7 @@ const DEMOS = {
     ],
   },
   checkout: {
-    n: 4,
     title: "Black Friday checkout",
-    intro: "All three rules at once, and the exact five jobs the cmd/client worker runs: two captures (p5), a receipt (p1), two retries (p10) backing off 8s and 4s. Money first, receipt next, retries when their timers end.",
     items: [
       { payload: "email receipt for order 1841", priority: 1, delay_seconds: 0 },
       { payload: "capture payment for order 1842", priority: 5, delay_seconds: 0 },
@@ -1193,14 +511,12 @@ const DEMOS = {
   },
 };
 
-const demo = { running: false, stop: false };
-
 function setDemoUI(runningKey) {
   document.querySelectorAll("[data-demo]").forEach((b) => {
-    b.disabled = Boolean(runningKey);
     b.classList.toggle("running", b.dataset.demo === runningKey);
   });
   $("demo-stop").classList.toggle("visible", Boolean(runningKey));
+  setControlsEnabled(true);
 }
 
 $("demo-stop").addEventListener("click", () => { demo.stop = true; });
@@ -1219,73 +535,52 @@ async function runDemo(key) {
   demo.stop = false;
   setDemoUI(key);
   try {
-    log("info", "Scenario " + def.n + ": " + def.title, def.intro);
-
-    // 1. Enqueue the script, sequentially so seq order matches arrival order.
-    const mine = new Map(); // id -> message
+    setStatus("Scenario: " + def.title);
+    const mine = new Map();
     for (const item of def.items) {
       const res = await api("POST", "/enqueue", item);
       mine.set(res.body.id, res.body);
-      log("ok", "Added #" + res.body.seq + " “" + shortPayload(item.payload, 40) + "” (priority " + item.priority + ")",
-        item.delay_seconds > 0 ? "Hidden for " + item.delay_seconds + "s (rule 1)." : "Visible immediately.",
-        res.label);
     }
 
-    // 2. Predict, from the server's own snapshot, using the same rules.
-    await refresh(); refreshWal();
+    await refresh();
     if (!snapshot) throw new Error("no snapshot, is the server up?");
     const predicted = simulateDrain(snapshot, snapshot.mode, DEMO_POP_MS)
       .filter((e) => mine.has(e.m.id))
       .map((e) => e.m);
-    log("info", "Prediction: " + predicted.map((m) => "“" + shortPayload(m.payload, 24) + "”").join(" → "),
-      snapshot.stats.total > mine.size
-        ? "(The queue also holds " + (snapshot.stats.total - mine.size) + " other message(s); they will interleave by the same rules and are narrated too.)"
-        : "Now taking them one by one to check it.");
+    setStatus("Predicted: " + predicted.map((m) => shortPayload(m.payload, 28)).join(" → "));
 
-    // 3. Drain with narration until every job in this scenario has come out.
     const actual = [];
     const deadline = Date.now() + 45000;
     while (actual.length < mine.size && !demo.stop && Date.now() < deadline) {
-      const before = snapshot;
       const res = await api("POST", "/dequeue");
       if (res.status === 204) {
-        log("warn", "Nothing visible (204)", explainEmpty(before), res.label);
+        setStatus("Waiting for a delayed job…");
         await sleep(1000); await refresh();
         continue;
       }
       const m = res.body;
       if (mine.has(m.id)) actual.push(m);
-      log("ok", "Took #" + m.seq + " “" + shortPayload(m.payload, 40) + "” (priority " + m.priority + ")",
-        (mine.has(m.id) ? "" : "(not part of this scenario, it was already queued and outranked the rest) ") + explainWin(m, before),
-        res.label);
-      await refresh(); refreshWal();
+      setStatus("Took: " + m.payload);
+      await refresh();
       await sleep(DEMO_POP_MS);
     }
 
-    // 4. Verdict.
     if (demo.stop) {
-      log("warn", "Scenario stopped", "Its remaining jobs are still queued. Take all ready clears the visible ones.");
+      setStatus("Scenario stopped. Remaining jobs are still in the queue.");
     } else if (actual.length < mine.size) {
-      log("warn", "Scenario timed out", "Some of its jobs are still queued (long backoffs?). They will drain by the same rules.");
+      setStatus("Scenario timed out. Remaining jobs are still in the queue.", true);
     } else {
       const ok = actual.length === predicted.length && actual.every((m, i) => m.id === predicted[i].id);
-      if (ok) {
-        log("ok", "✓ PASS. Drained exactly as predicted.",
-          "The server applied the same three rules this page used to predict: " +
-          actual.map((m) => "“" + shortPayload(m.payload, 22) + "”").join(" → "));
-      } else {
-        log("err", "✗ Order differed from the prediction",
-          "Got: " + actual.map((m) => "“" + shortPayload(m.payload, 22) + "”").join(" → ") +
-          ". Something else dequeued concurrently, or this is a bug worth reporting.");
-      }
+      const order = actual.map((m) => shortPayload(m.payload, 22)).join(" → ");
+      setStatus(ok ? "PASS. " + order : "Order differed: " + order, !ok);
     }
   } catch (err) {
-    log("err", "Scenario aborted: " + err.message, undefined, err.label);
+    setStatus(err.message, true);
   } finally {
     demo.running = false;
     demo.stop = false;
     setDemoUI(null);
-    refresh(); refreshWal();
+    refresh();
   }
 }
 
@@ -1294,8 +589,7 @@ async function runBurstDemo() {
   demo.stop = false;
   setDemoUI("burst");
   try {
-    log("info", "Scenario 5: twenty storefronts at once",
-      "Twenty storefronts order at the same instant: 20 parallel POST /enqueue requests. One lock, WAL first, so every request must return 201 with a unique sequence number and none may be lost.");
+    setStatus("Scenario: Twenty storefronts at once");
     const reqs = [];
     for (let i = 1; i <= 20; i++) {
       reqs.push(api("POST", "/enqueue", {
@@ -1307,12 +601,13 @@ async function runBurstDemo() {
     const results = await Promise.all(reqs);
     const seqs = results.map((r) => r.body.seq);
     const unique = new Set(seqs).size === seqs.length;
-    log(unique ? "ok" : "err",
-      unique ? "All 20 accepted, 20 unique sequence numbers" : "✗ Duplicate sequence numbers!",
-      "seq #" + Math.min.apply(null, seqs) + " … #" + Math.max.apply(null, seqs) +
-      ". Each was fsynced to the WAL before its 201. Count the new ENQUEUE lines below.");
-    await refresh(); await refreshWal();
-    await sleep(2200);
+    if (!unique) {
+      setStatus("Duplicate sequence numbers.", true);
+      return;
+    }
+    setStatus("All 20 accepted. Draining…");
+    await refresh();
+    await sleep(800);
 
     let n = 0;
     while (!demo.stop) {
@@ -1321,52 +616,37 @@ async function runBurstDemo() {
       n++;
       if (n > 5000) break;
     }
-    log("ok", "Drained " + n + " ready message(s) to close the loop",
-      "Ledger balanced: every order has exactly one ENQUEUE and one DEQUEUE record on disk. Nothing lost, nothing delivered twice.");
+    setStatus(unique ? "PASS. 20 unique jobs, drained " + n + "." : "Duplicate sequence numbers.");
   } catch (err) {
-    log("err", "Scenario aborted: " + err.message, undefined, err.label);
+    setStatus(err.message, true);
   } finally {
     demo.running = false;
     demo.stop = false;
     setDemoUI(null);
-    refresh(); refreshWal();
+    refresh();
   }
 }
 
-/* ---------------- wiring ---------------- */
-
-$("modeseg").querySelectorAll("button").forEach((b) => {
-  b.addEventListener("click", () => {
-    whatIf = b.dataset.seg === "whatif";
-    if (snapshot) renderUpNext(snapshot);
-    tickCountdowns();
-  });
+$("deq").addEventListener("click", async () => {
+  const delayed = snapshot ? snapshot.stats.delayed : 0;
+  try {
+    const res = await api("POST", "/dequeue");
+    if (res.status === 204) {
+      setStatus(delayed > 0
+        ? "Nothing ready. " + delayed + " still waiting."
+        : "Queue is empty.");
+    } else {
+      setStatus("Took: " + res.body.payload);
+    }
+  } catch (err) {
+    setStatus(err.message, true);
+  }
+  refresh();
 });
-
-$("walraw").addEventListener("click", () => {
-  walShowRaw = !walShowRaw;
-  $("walraw").textContent = walShowRaw ? "show summary" : "show raw JSONL";
-  renderWal();
-});
-
-$("auto").addEventListener("change", (e) => {
-  if (e.target.checked) startPolling(); else stopPolling();
-});
-
-let walTick = 0;
-function startPolling() {
-  stopPolling();
-  polling = setInterval(() => {
-    refresh();
-    if (walTick++ % 2 === 0) refreshWal();
-  }, 1000);
-}
-function stopPolling() { if (polling) { clearInterval(polling); polling = null; } }
 
 setInterval(tickCountdowns, 100);
+setInterval(refresh, 1000);
 refresh();
-refreshWal();
-startPolling();
 </script>
 </body>
 </html>

@@ -637,8 +637,11 @@ func TestConsole_ServedAtRootOnly(t *testing.T) {
 	if !strings.Contains(body, "/messages") {
 		t.Fatal("console page does not reference GET /messages")
 	}
-	if !strings.Contains(body, "/wal") {
-		t.Fatal("console page does not reference GET /wal (the durability panel)")
+	if !strings.Contains(body, "/enqueue") {
+		t.Fatal("console page does not reference POST /enqueue")
+	}
+	if !strings.Contains(body, "/dequeue") {
+		t.Fatal("console page does not reference POST /dequeue")
 	}
 
 	// "/{$}" must match the root exactly and must not swallow unknown paths.
@@ -648,7 +651,7 @@ func TestConsole_ServedAtRootOnly(t *testing.T) {
 }
 
 // TestWal_ReturnsFsyncedRecords: GET /wal must show one record per durable
-// operation, in log order, without consuming anything — it is the console's
+// operation, in log order, without consuming anything — it is a read-only
 // window into the durability layer.
 func TestWal_ReturnsFsyncedRecords(t *testing.T) {
 	t.Parallel()
