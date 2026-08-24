@@ -271,35 +271,48 @@ func TestLenAndAvailableLen(t *testing.T) {
 
 // TestRemove: removal works for both visible and still-delayed messages,
 // reports presence accurately, and removed messages never pop.
+// TestRemove excises messages from either heap. It asserts a pop order, so it
+// runs for both modes per SKILLS.md §1.3.1 — removing from the middle of a
+// heap must leave the surviving order intact in whichever direction the mode
+// breaks ties.
 func TestRemove(t *testing.T) {
 	t.Parallel()
-	q := newQueue(t, model.ModeFIFO)
-	matureAt := base.Add(time.Hour)
-	q.Push(mkMsg("keep-a", 1, 5, base))
-	q.Push(mkMsg("drop-ready", 2, 5, base))
-	q.Push(mkMsg("keep-b", 3, 5, base))
-	q.Push(mkMsg("drop-delayed", 4, 99, matureAt))
+	for _, mode := range modes {
+		mode := mode
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			q := newQueue(t, mode)
+			matureAt := base.Add(time.Hour)
+			q.Push(mkMsg("keep-a", 1, 5, base))
+			q.Push(mkMsg("drop-ready", 2, 5, base))
+			q.Push(mkMsg("keep-b", 3, 5, base))
+			q.Push(mkMsg("drop-delayed", 4, 99, matureAt))
 
-	if !q.Remove("drop-ready") {
-		t.Fatal(`Remove("drop-ready") = false, want true`)
-	}
-	if !q.Remove("drop-delayed") {
-		t.Fatal(`Remove("drop-delayed") = false, want true`)
-	}
-	if q.Remove("drop-ready") {
-		t.Fatal("second Remove of the same ID = true, want false")
-	}
-	if q.Remove("never-existed") {
-		t.Fatal("Remove of unknown ID = true, want false")
-	}
-	if got := q.Len(); got != 2 {
-		t.Fatalf("Len() after removals = %d, want 2", got)
-	}
+			if !q.Remove("drop-ready") {
+				t.Fatal(`Remove("drop-ready") = false, want true`)
+			}
+			if !q.Remove("drop-delayed") {
+				t.Fatal(`Remove("drop-delayed") = false, want true`)
+			}
+			if q.Remove("drop-ready") {
+				t.Fatal("second Remove of the same ID = true, want false")
+			}
+			if q.Remove("never-existed") {
+				t.Fatal("Remove of unknown ID = true, want false")
+			}
+			if got := q.Len(); got != 2 {
+				t.Fatalf("Len() after removals = %d, want 2", got)
+			}
 
-	// Neither removed message may surface, even past the delay horizon.
-	want := []string{"keep-a", "keep-b", "-"}
-	if got := popIDs(q, matureAt, matureAt, matureAt); !slices.Equal(got, want) {
-		t.Fatalf("pop order after removals = %v, want %v", got, want)
+			// Neither removed message may surface, even past the delay horizon.
+			want := []string{"keep-a", "keep-b", "-"}
+			if mode == model.ModeLIFO {
+				want = []string{"keep-b", "keep-a", "-"}
+			}
+			if got := popIDs(q, matureAt, matureAt, matureAt); !slices.Equal(got, want) {
+				t.Fatalf("pop order after removals = %v, want %v", got, want)
+			}
+		})
 	}
 }
 
@@ -412,5 +425,147 @@ func TestConcurrent_PushPopRemove(t *testing.T) {
 				t.Fatalf("Pop after drain returned %q, want none", m.ID)
 			}
 		})
+	}
+}
+
+// msgIDs extracts IDs in slice order for snapshot assertions.
+func msgIDs(msgs []model.Message) []string {
+	ids := make([]string, len(msgs))
+	for i, m := range msgs {
+		ids[i] = m.ID
+	}
+	return ids
+}
+
+// TestSnapshot_OrdersReadyByPopRuleAndDelayedByMaturity: the snapshot is the
+// console's view of the queue, so its ready list must agree with Pop exactly
+// — same visibility filter, same order — and its delayed list must be sorted
+// by AvailableAt so a UI can render "next to mature" first.
+func TestSnapshot_OrdersReadyByPopRuleAndDelayedByMaturity(t *testing.T) {
+	t.Parallel()
+	for _, mode := range modes {
+		mode := mode
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			q := newQueue(t, mode)
+
+			// Visible: two tied at priority 5, one at priority 1.
+			q.Push(mkMsg("a", 1, 1, base))
+			q.Push(mkMsg("b", 2, 5, base))
+			q.Push(mkMsg("d", 4, 5, base))
+			// Delayed, pushed in the opposite order to their maturity so a
+			// naive "insertion order" implementation would fail.
+			q.Push(mkMsg("c", 3, 10, base.Add(4*time.Second)))
+			q.Push(mkMsg("e", 5, 10, base.Add(2*time.Second)))
+
+			view := q.Snapshot(base, 0)
+			if view.ReadyTruncated || view.DelayedTruncated {
+				t.Fatalf("limit 0 must not truncate; got readyTrunc=%v delayedTrunc=%v", view.ReadyTruncated, view.DelayedTruncated)
+			}
+			if view.ReadyLen != 3 || view.DelayedLen != 2 {
+				t.Fatalf("View lens = ready:%d delayed:%d, want 3 and 2", view.ReadyLen, view.DelayedLen)
+			}
+
+			if got, want := msgIDs(view.Delayed), []string{"e", "c"}; !slices.Equal(got, want) {
+				t.Fatalf("delayed order = %v, want %v (soonest AvailableAt first)", got, want)
+			}
+
+			wantReady := []string{"b", "d", "a"}
+			if mode == model.ModeLIFO {
+				wantReady = []string{"d", "b", "a"}
+			}
+			if got := msgIDs(view.Ready); !slices.Equal(got, wantReady) {
+				t.Fatalf("ready order = %v, want %v", got, wantReady)
+			}
+
+			// Snapshot is read-only: nothing was consumed.
+			if got := q.Len(); got != 5 {
+				t.Fatalf("Len() after Snapshot = %d, want 5 (Snapshot must not consume)", got)
+			}
+
+			// And Pop must now deliver precisely the order the snapshot showed.
+			if got := popIDs(q, base, base, base); !slices.Equal(got, wantReady) {
+				t.Fatalf("pop order = %v, but Snapshot advertised %v", got, wantReady)
+			}
+		})
+	}
+}
+
+// TestSnapshot_LimitTruncatesEachListIndependently: a limit caps each list on
+// its own, the flags say which one was cut, and the Len fields keep describing
+// the whole queue. The truncated page must be the *head* of the pop order, so
+// the assertion is mode-dependent and runs for both (SKILLS.md §1.3.1).
+func TestSnapshot_LimitTruncatesEachListIndependently(t *testing.T) {
+	t.Parallel()
+	for _, mode := range modes {
+		mode := mode
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			q := newQueue(t, mode)
+			for i := 1; i <= 4; i++ {
+				q.Push(mkMsg(fmt.Sprintf("r%d", i), uint64(i), 0, base))
+			}
+			q.Push(mkMsg("d1", 10, 0, base.Add(time.Minute)))
+
+			view := q.Snapshot(base, 2)
+			if len(view.Ready) != 2 || !view.ReadyTruncated {
+				t.Fatalf("ready = %v (truncated=%v), want 2 entries and truncated=true", msgIDs(view.Ready), view.ReadyTruncated)
+			}
+			want := []string{"r1", "r2"}
+			if mode == model.ModeLIFO {
+				want = []string{"r4", "r3"}
+			}
+			if got := msgIDs(view.Ready); !slices.Equal(got, want) {
+				t.Fatalf("truncated ready = %v, want %v (the head of the %s pop order, not an arbitrary pair)", got, want, mode)
+			}
+			if len(view.Delayed) != 1 || view.DelayedTruncated {
+				t.Fatalf("delayed = %v (truncated=%v), want 1 entry and truncated=false", msgIDs(view.Delayed), view.DelayedTruncated)
+			}
+			if view.ReadyLen != 4 || view.DelayedLen != 1 {
+				t.Fatalf("View lens under a limit = ready:%d delayed:%d, want 4 and 1 (counts describe the queue, not the page)", view.ReadyLen, view.DelayedLen)
+			}
+		})
+	}
+}
+
+// TestSnapshot_PromotesMaturedMessagesLikePop: visibility must be judged the
+// same way by both calls, otherwise the console would show a message as
+// delayed that Pop would happily hand out.
+func TestSnapshot_PromotesMaturedMessagesLikePop(t *testing.T) {
+	t.Parallel()
+	q := newQueue(t, model.ModeFIFO)
+	q.Push(mkMsg("late", 1, 0, base.Add(3*time.Second)))
+
+	view := q.Snapshot(base, 0)
+	if len(view.Ready) != 0 || len(view.Delayed) != 1 {
+		t.Fatalf("before AvailableAt: ready=%v delayed=%v, want ready empty and delayed=[late]", msgIDs(view.Ready), msgIDs(view.Delayed))
+	}
+
+	// Exactly at AvailableAt the message must be visible in both views.
+	view = q.Snapshot(base.Add(3*time.Second), 0)
+	if got, want := msgIDs(view.Ready), []string{"late"}; !slices.Equal(got, want) {
+		t.Fatalf("at AvailableAt: ready = %v, want %v", got, want)
+	}
+	if len(view.Delayed) != 0 {
+		t.Fatalf("at AvailableAt: delayed = %v, want empty", msgIDs(view.Delayed))
+	}
+}
+
+// TestSnapshot_EmptyQueue returns empty slices, not nils, so the JSON
+// encoder emits [] rather than null and GET /messages matches its documented
+// array shape even when the queue is empty.
+func TestSnapshot_EmptyQueue(t *testing.T) {
+	t.Parallel()
+	q := newQueue(t, model.ModeFIFO)
+	view := q.Snapshot(base, 10)
+	if view.Ready == nil || view.Delayed == nil {
+		t.Fatal("empty queue Snapshot returned nil slices; JSON would encode them as null, not []")
+	}
+	if len(view.Ready) != 0 || len(view.Delayed) != 0 || view.ReadyTruncated || view.DelayedTruncated {
+		t.Fatalf("empty queue Snapshot = ready:%v/%v delayed:%v/%v, want all empty and untruncated",
+			msgIDs(view.Ready), view.ReadyTruncated, msgIDs(view.Delayed), view.DelayedTruncated)
+	}
+	if view.ReadyLen != 0 || view.DelayedLen != 0 {
+		t.Fatalf("empty queue lens = ready:%d delayed:%d, want zeros", view.ReadyLen, view.DelayedLen)
 	}
 }

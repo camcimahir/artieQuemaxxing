@@ -1,21 +1,51 @@
-// Package api implements the HTTP handlers for Queuemaxxing:
-// POST /enqueue, POST|GET /dequeue, GET /stats, and GET /health.
+// Package api implements the HTTP handlers for Queuemaxxing: POST /enqueue,
+// POST|GET /dequeue, GET /messages, GET /wal, GET /stats, GET /health, and
+// the embedded web console at GET /.
 //
 // Handlers perform routing, JSON (de)serialization, request validation,
 // and HTTP status mapping. Business logic lives in the service layer.
 package api
 
 import (
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 
 	"queuemaxxing/pkg/model"
 	"queuemaxxing/pkg/service"
 )
 
-const maxEnqueueBodyBytes = 1 << 20
+const (
+	maxEnqueueBodyBytes = 1 << 20
+
+	// defaultMessageLimit caps GET /messages when the caller does not ask
+	// for a specific size. Snapshot sorts what it returns, so an unbounded
+	// default would make a routine console refresh O(n log n) over the whole
+	// queue.
+	defaultMessageLimit = 100
+
+	// maxMessageLimit is the largest accepted ?limit= value.
+	maxMessageLimit = 1000
+
+	// defaultWalLimit caps GET /wal when the caller does not ask for a
+	// specific size. The console polls this endpoint, so the default keeps
+	// a routine refresh small.
+	defaultWalLimit = 50
+
+	// maxWalLimit is the largest accepted GET /wal ?limit= value.
+	maxWalLimit = 500
+)
+
+// consoleHTML is the single-page web console, compiled into the binary by
+// go:embed. Keeping the UI inside the executable is deliberate: Queuemaxxing
+// ships as one file with no runtime dependencies, and a console that needed
+// a separate asset directory or a build step would undo that.
+//
+//go:embed ui/console.html
+var consoleHTML []byte
 
 // Queue is the service surface the HTTP handlers depend on.
 // *service.QueueService implements this interface.
@@ -23,6 +53,8 @@ type Queue interface {
 	Enqueue(req model.EnqueueRequest) (model.Message, error)
 	Dequeue() (*model.Message, error)
 	Stats() model.QueueStats
+	Snapshot(limit int) model.QueueSnapshot
+	WalTail(limit int) (model.WalTail, error)
 }
 
 // Handler routes HTTP requests to the queue service. It implements
@@ -39,8 +71,13 @@ func NewHandler(q Queue) *Handler {
 	mux.HandleFunc("POST /enqueue", h.enqueue)
 	mux.HandleFunc("POST /dequeue", h.dequeue)
 	mux.HandleFunc("GET /dequeue", h.dequeue)
+	mux.HandleFunc("GET /messages", h.messages)
+	mux.HandleFunc("GET /wal", h.wal)
 	mux.HandleFunc("GET /stats", h.stats)
 	mux.HandleFunc("GET /health", h.health)
+	// "/{$}" matches the root path exactly. A bare "/" would match every
+	// unrouted path and turn 404s into the console page.
+	mux.HandleFunc("GET /{$}", h.console)
 	h.mux = recoverMiddleware(mux)
 	return h
 }
@@ -53,13 +90,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // HealthResponse is the JSON body of GET /health.
 type HealthResponse struct {
 	Status string `json:"status"`
-}
-
-// StatsResponse is the JSON body of GET /stats.
-type StatsResponse struct {
-	Total   int `json:"total"`
-	Ready   int `json:"ready"`
-	Delayed int `json:"delayed"`
 }
 
 // ErrorResponse is the JSON body returned for 4xx/5xx errors.
@@ -107,13 +137,59 @@ func (h *Handler) dequeue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, msg)
 }
 
+// messages returns a non-destructive snapshot of queue contents. It is the
+// read-only counterpart to dequeue: the console polls it to render both
+// heaps without consuming anything.
+func (h *Handler) messages(w http.ResponseWriter, r *http.Request) {
+	limit := defaultMessageLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > maxMessageLimit {
+			writeError(w, http.StatusBadRequest, "limit must be an integer between 1 and "+strconv.Itoa(maxMessageLimit))
+			return
+		}
+		limit = n
+	}
+	writeJSON(w, http.StatusOK, h.queue.Snapshot(limit))
+}
+
+// wal returns a read-only tail of the write-ahead log: the newest records
+// exactly as they were fsynced to disk. It is what the console's durability
+// panel polls, so a tester can watch each enqueue and dequeue land in the
+// log before its HTTP response was even sent.
+func (h *Handler) wal(w http.ResponseWriter, r *http.Request) {
+	limit := defaultWalLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > maxWalLimit {
+			writeError(w, http.StatusBadRequest, "limit must be an integer between 1 and "+strconv.Itoa(maxWalLimit))
+			return
+		}
+		limit = n
+	}
+	tail, err := h.queue.WalTail(limit)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, tail)
+}
+
+// console serves the embedded single-page web console.
+func (h *Handler) console(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(consoleHTML); err != nil {
+		log.Printf("writing console page: %v", err)
+	}
+}
+
+// stats returns the occupancy counts. model.QueueStats is the wire shape
+// directly: an api-local DTO would be a field-for-field copy whose only
+// effect is a second place for the JSON names to drift.
 func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
-	s := h.queue.Stats()
-	writeJSON(w, http.StatusOK, StatsResponse{
-		Total:   s.Total,
-		Ready:   s.Available,
-		Delayed: s.Delayed,
-	})
+	writeJSON(w, http.StatusOK, h.queue.Stats())
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {

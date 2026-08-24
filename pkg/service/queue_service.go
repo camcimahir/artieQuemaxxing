@@ -90,7 +90,7 @@ func NewQueueService(walPath string, mode model.QueueMode, opts ...Option) (*Que
 }
 
 // Enqueue validates req, assigns a UUID and monotonic Seq, computes
-// AvailableAt from the current time plus DelaySeconds, appends a durable
+// AvailableAt from the current UTC time plus DelaySeconds, appends a durable
 // ENQUEUE record, then inserts the message into the in-memory queue.
 func (s *QueueService) Enqueue(req model.EnqueueRequest) (model.Message, error) {
 	if err := req.Validate(); err != nil {
@@ -107,7 +107,7 @@ func (s *QueueService) Enqueue(req model.EnqueueRequest) (model.Message, error) 
 		return model.Message{}, ErrClosed
 	}
 
-	now := s.now()
+	now := s.now().UTC()
 	s.seq++
 	msg := model.Message{
 		ID:          id,
@@ -138,7 +138,7 @@ func (s *QueueService) Dequeue() (*model.Message, error) {
 		return nil, ErrClosed
 	}
 
-	msg, ok := s.queue.Pop(s.now())
+	msg, ok := s.queue.Pop(s.now().UTC())
 	if !ok {
 		return nil, nil
 	}
@@ -149,12 +149,58 @@ func (s *QueueService) Dequeue() (*model.Message, error) {
 	return msg, nil
 }
 
+// Snapshot returns a read-only view of the queue: the ready and delayed
+// message lists plus the matching occupancy counts. The engine is consulted
+// exactly once, so the lists and the counts describe the same instant and can
+// never disagree — the counts always describe the whole queue even when a
+// limit truncates the lists.
+//
+// A limit > 0 caps each list independently; the response flags which lists
+// were truncated. Snapshot never consumes a message — it is the inspection
+// counterpart to Dequeue, and it is what makes the web console possible
+// without destroying the queue it is displaying.
+func (s *QueueService) Snapshot(limit int) model.QueueSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := s.now().UTC()
+	view := s.queue.Snapshot(now, limit)
+	return model.QueueSnapshot{
+		Mode: s.queue.Mode(),
+		Now:  now,
+		Stats: model.QueueStats{
+			Total:     view.ReadyLen + view.DelayedLen,
+			Available: view.ReadyLen,
+			Delayed:   view.DelayedLen,
+		},
+		Ready:            view.Ready,
+		Delayed:          view.Delayed,
+		ReadyTruncated:   view.ReadyTruncated,
+		DelayedTruncated: view.DelayedTruncated,
+	}
+}
+
+// WalTail returns the newest write-ahead-log records, verbatim from disk,
+// capped at limit when limit > 0. It is a read-only inspection path — the
+// counterpart of Snapshot for the durability layer — and it is what lets
+// the web console show every fsynced record as it lands. After Close the
+// log file is gone from under us, so WalTail returns ErrClosed rather than
+// pretending it can still read.
+func (s *QueueService) WalTail(limit int) (model.WalTail, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.closed {
+		return model.WalTail{}, ErrClosed
+	}
+	return s.wal.Tail(limit)
+}
+
 // Stats returns total, available, and delayed counts at the current time.
 func (s *QueueService) Stats() model.QueueStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	now := s.now()
+	now := s.now().UTC()
 	total := s.queue.Len()
 	available := s.queue.AvailableLen(now)
 	return model.QueueStats{
@@ -165,7 +211,8 @@ func (s *QueueService) Stats() model.QueueStats {
 }
 
 // Close closes the underlying WAL. Subsequent Enqueue and Dequeue calls
-// return ErrClosed. Close is idempotent.
+// return ErrClosed because durability is no longer available. Stats and
+// Snapshot keep answering from intact memory. Close is idempotent.
 func (s *QueueService) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -3,6 +3,7 @@ data/
 *.wal
 
 # Go build artifacts
+/bin/
 *.exe
 *.exe~
 *.dll
@@ -19,5 +20,4 @@ data/
 *~
 
 # Scratch / backup files
-sandbox.go
 *.orig

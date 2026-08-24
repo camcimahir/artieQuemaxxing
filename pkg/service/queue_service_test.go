@@ -1,10 +1,12 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -301,6 +303,27 @@ func TestClose_RejectsSubsequentMutations(t *testing.T) {
 	}
 }
 
+func TestClose_ReadsStillWork(t *testing.T) {
+	t.Parallel()
+	svc, _ := openService(t, model.ModeFIFO)
+	svc.now = func() time.Time { return base }
+
+	mustEnqueue(t, svc, model.EnqueueRequest{Payload: "kept", Priority: 3, DelaySeconds: 15})
+	if err := svc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	got := svc.Stats()
+	want := model.QueueStats{Total: 1, Available: 0, Delayed: 1}
+	if got != want {
+		t.Fatalf("Stats after Close = %+v, want %+v (reads must keep working)", got, want)
+	}
+	snap := svc.Snapshot(0)
+	if snap.Stats != want || len(snap.Delayed) != 1 || snap.Delayed[0].Payload != "kept" {
+		t.Fatalf("Snapshot after Close = %+v, want the delayed message still visible", snap)
+	}
+}
+
 // TestQueueService_ConcurrentProduceConsume_RestartConsistent hammers the
 // service with 50 producers and 50 consumers, then reopens the same WAL
 // and asserts no duplicates and a lossless restart.
@@ -509,4 +532,209 @@ func copyMap(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// TestSnapshot_AgreesWithStatsAndDequeueOrder: the snapshot feeds the web
+// console, so it must never disagree with the two things a reviewer will
+// check it against — the counts from Stats and the actual dequeue order.
+func TestSnapshot_AgreesWithStatsAndDequeueOrder(t *testing.T) {
+	t.Parallel()
+	for _, mode := range modes {
+		mode := mode
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			svc, _ := openService(t, mode)
+			now := base
+			svc.now = func() time.Time { return now }
+
+			mustEnqueue(t, svc, model.EnqueueRequest{Payload: "low", Priority: 1})
+			mustEnqueue(t, svc, model.EnqueueRequest{Payload: "mid-first", Priority: 5})
+			mustEnqueue(t, svc, model.EnqueueRequest{Payload: "mid-second", Priority: 5})
+			mustEnqueue(t, svc, model.EnqueueRequest{Payload: "urgent-later", Priority: 9, DelaySeconds: 30})
+
+			snap := svc.Snapshot(0)
+			if snap.Mode != mode {
+				t.Fatalf("Snapshot().Mode = %q, want %q", snap.Mode, mode)
+			}
+			if !snap.Now.Equal(base) {
+				t.Fatalf("Snapshot().Now = %v, want the injected clock %v", snap.Now, base)
+			}
+			if got, want := snap.Stats, (model.QueueStats{Total: 4, Available: 3, Delayed: 1}); got != want {
+				t.Fatalf("Snapshot().Stats = %+v, want %+v", got, want)
+			}
+			if got := svc.Stats(); got != snap.Stats {
+				t.Fatalf("Snapshot().Stats = %+v but Stats() = %+v; the two must never disagree", snap.Stats, got)
+			}
+			if len(snap.Ready) != 3 || len(snap.Delayed) != 1 {
+				t.Fatalf("Snapshot lists = ready:%d delayed:%d, want 3 and 1", len(snap.Ready), len(snap.Delayed))
+			}
+			if snap.Delayed[0].Payload != "urgent-later" {
+				t.Fatalf("delayed[0] = %q, want urgent-later", snap.Delayed[0].Payload)
+			}
+
+			wantOrder := []string{"mid-first", "mid-second", "low"}
+			if mode == model.ModeLIFO {
+				wantOrder = []string{"mid-second", "mid-first", "low"}
+			}
+			gotSnapshot := make([]string, len(snap.Ready))
+			for i, m := range snap.Ready {
+				gotSnapshot[i] = m.Payload
+			}
+			if !slices.Equal(gotSnapshot, wantOrder) {
+				t.Fatalf("Snapshot().Ready order = %v, want %v", gotSnapshot, wantOrder)
+			}
+
+			// Snapshot must not have consumed anything, and the real drain
+			// must match what it advertised.
+			drained := drain(t, svc)
+			gotDrain := make([]string, len(drained))
+			for i, m := range drained {
+				gotDrain[i] = m.Payload
+			}
+			if !slices.Equal(gotDrain, wantOrder) {
+				t.Fatalf("dequeue order = %v, but Snapshot advertised %v", gotDrain, wantOrder)
+			}
+		})
+	}
+}
+
+// TestSnapshot_LimitReportsTruncationButKeepsCountsHonest: with a limit the
+// lists are cut, yet Stats must still describe the whole queue — otherwise a
+// console showing "5 of 5" while holding 200 messages would be lying.
+func TestSnapshot_LimitReportsTruncationButKeepsCountsHonest(t *testing.T) {
+	t.Parallel()
+	for _, mode := range modes {
+		mode := mode
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			svc, _ := openService(t, mode)
+			now := base
+			svc.now = func() time.Time { return now }
+
+			for i := 0; i < 10; i++ {
+				mustEnqueue(t, svc, model.EnqueueRequest{Payload: fmt.Sprintf("ready-%d", i)})
+			}
+			for i := 0; i < 3; i++ {
+				mustEnqueue(t, svc, model.EnqueueRequest{Payload: fmt.Sprintf("later-%d", i), DelaySeconds: 60})
+			}
+
+			snap := svc.Snapshot(4)
+			if len(snap.Ready) != 4 || !snap.ReadyTruncated {
+				t.Fatalf("ready = %d entries (truncated=%v), want 4 and true", len(snap.Ready), snap.ReadyTruncated)
+			}
+			if len(snap.Delayed) != 3 || snap.DelayedTruncated {
+				t.Fatalf("delayed = %d entries (truncated=%v), want 3 and false", len(snap.Delayed), snap.DelayedTruncated)
+			}
+			if got, want := snap.Stats, (model.QueueStats{Total: 13, Available: 10, Delayed: 3}); got != want {
+				t.Fatalf("Stats under a limit = %+v, want %+v (counts describe the queue, not the page)", got, want)
+			}
+
+			// The page must be the head of the pop order for this mode.
+			wantFirst := "ready-0"
+			if mode == model.ModeLIFO {
+				wantFirst = "ready-9"
+			}
+			if snap.Ready[0].Payload != wantFirst {
+				t.Fatalf("ready[0] = %q under %s, want %q", snap.Ready[0].Payload, mode, wantFirst)
+			}
+		})
+	}
+}
+
+// TestEnqueue_RejectsDelayThatWouldOverflowDuration guards the arithmetic in
+// Enqueue: DelaySeconds * time.Second is an int64 nanosecond count, so a
+// large enough delay wraps negative and would make a "far future" message
+// instantly visible. The cap must reject it at the boundary instead.
+func TestEnqueue_RejectsDelayThatWouldOverflowDuration(t *testing.T) {
+	t.Parallel()
+	svc, _ := openService(t, model.ModeFIFO)
+	now := base
+	svc.now = func() time.Time { return now }
+
+	// 1e10 seconds overflows int64 nanoseconds; before the cap this produced
+	// an AvailableAt in the *past*.
+	if _, err := svc.Enqueue(model.EnqueueRequest{Payload: "overflow", DelaySeconds: 10_000_000_000}); err == nil {
+		t.Fatal("Enqueue accepted a delay that overflows time.Duration; want an error")
+	}
+	if _, err := svc.Enqueue(model.EnqueueRequest{Payload: "just-over", DelaySeconds: model.MaxDelaySeconds + 1}); err == nil {
+		t.Fatalf("Enqueue accepted delay_seconds = MaxDelaySeconds+1; want an error")
+	}
+
+	// The cap itself must still be accepted and stay in the future.
+	msg, err := svc.Enqueue(model.EnqueueRequest{Payload: "at-cap", DelaySeconds: model.MaxDelaySeconds})
+	if err != nil {
+		t.Fatalf("Enqueue at exactly MaxDelaySeconds: %v", err)
+	}
+	if !msg.AvailableAt.After(now) {
+		t.Fatalf("AvailableAt = %v, want a time after now (%v) — the multiplication wrapped", msg.AvailableAt, now)
+	}
+	if stats := svc.Stats(); stats.Total != 1 || stats.Delayed != 1 {
+		t.Fatalf("stats = %+v, want the capped message stored and invisible", stats)
+	}
+}
+
+// TestWalTail_ReflectsOperationsInLogOrder: the tail must mirror exactly
+// what the service did — one ENQUEUE record per accepted enqueue, one
+// DEQUEUE tombstone per delivery, in the order they were made durable.
+func TestWalTail_ReflectsOperationsInLogOrder(t *testing.T) {
+	t.Parallel()
+	svc, _ := openService(t, model.ModeFIFO)
+
+	first := mustEnqueue(t, svc, model.EnqueueRequest{Payload: "first"})
+	second := mustEnqueue(t, svc, model.EnqueueRequest{Payload: "second"})
+	delivered, err := svc.Dequeue()
+	if err != nil {
+		t.Fatalf("Dequeue: %v", err)
+	}
+	if delivered == nil || delivered.ID != first.ID {
+		t.Fatalf("dequeued %+v, want the FIFO head %q", delivered, first.ID)
+	}
+
+	tail, err := svc.WalTail(10)
+	if err != nil {
+		t.Fatalf("WalTail: %v", err)
+	}
+	if tail.Truncated {
+		t.Fatal("truncated = true, want false for a three-record log under limit 10")
+	}
+	if len(tail.Records) != 3 {
+		t.Fatalf("records = %d, want 3 (two enqueues + one tombstone)", len(tail.Records))
+	}
+
+	type rec struct {
+		Op string `json:"op"`
+		ID string `json:"id"`
+	}
+	var recs []rec
+	for i, raw := range tail.Records {
+		var r rec
+		if err := json.Unmarshal(raw, &r); err != nil {
+			t.Fatalf("record %d is not valid JSON: %v; raw=%s", i, err, raw)
+		}
+		recs = append(recs, r)
+	}
+	want := []rec{
+		{Op: "ENQUEUE", ID: first.ID},
+		{Op: "ENQUEUE", ID: second.ID},
+		{Op: "DEQUEUE", ID: first.ID},
+	}
+	for i := range want {
+		if recs[i] != want[i] {
+			t.Fatalf("record %d = %+v, want %+v", i, recs[i], want[i])
+		}
+	}
+}
+
+// TestWalTail_ClosedReturnsErrClosed: after Close the log file is closed,
+// so the tail cannot honestly be read — unlike Stats/Snapshot, which keep
+// answering from intact memory.
+func TestWalTail_ClosedReturnsErrClosed(t *testing.T) {
+	t.Parallel()
+	svc, _ := openService(t, model.ModeFIFO)
+	if err := svc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := svc.WalTail(10); !errors.Is(err, ErrClosed) {
+		t.Fatalf("WalTail after Close: error = %v, want ErrClosed", err)
+	}
 }

@@ -81,7 +81,16 @@ func startEnv(t *testing.T, walPath string, mode model.QueueMode, clock *fakeClo
 	t.Cleanup(func() {
 		if e.crashed {
 			// Deliberately abandoned: the crash simulation depends on
-			// Close() never running for this instance.
+			// Close() never running for this instance *before* recovery —
+			// and it did not, because t.Cleanup funcs run only after the
+			// test body has finished asserting on the recovered state.
+			// Releasing the orphaned descriptor here cannot change what
+			// recovery saw: the WAL is unbuffered and fsynced per record,
+			// so the bytes on disk were already final the moment crash()
+			// returned. This exists purely so t.TempDir can unlink the
+			// file on Windows, which refuses to delete files that still
+			// have an open handle.
+			_ = e.svc.Close()
 			return
 		}
 		e.srv.Close()
@@ -172,7 +181,7 @@ func (e *env) dequeue() *model.Message {
 	return msg
 }
 
-func (e *env) stats() api.StatsResponse {
+func (e *env) stats() model.QueueStats {
 	e.t.Helper()
 	resp, err := e.client.Get(e.srv.URL + "/stats")
 	if err != nil {
@@ -186,7 +195,7 @@ func (e *env) stats() api.StatsResponse {
 	if resp.StatusCode != http.StatusOK {
 		e.t.Fatalf("GET /stats: status %d; body=%s", resp.StatusCode, raw)
 	}
-	var st api.StatsResponse
+	var st model.QueueStats
 	if err := json.Unmarshal(raw, &st); err != nil {
 		e.t.Fatalf("GET /stats: decode: %v; body=%s", err, raw)
 	}
@@ -294,7 +303,7 @@ func TestE2E_CrashRecovery_SurvivorsDrainInPriorityDelayOrder(t *testing.T) {
 				}
 				enqueued = append(enqueued, msg)
 			}
-			if st := env1.stats(); st.Total != 100 || st.Ready != 60 || st.Delayed != 40 {
+			if st := env1.stats(); st.Total != 100 || st.Available != 60 || st.Delayed != 40 {
 				t.Fatalf("stats after enqueue = %+v, want total=100 ready=60 delayed=40", st)
 			}
 
@@ -347,7 +356,7 @@ func TestE2E_CrashRecovery_SurvivorsDrainInPriorityDelayOrder(t *testing.T) {
 			if len(remaining) != 70 {
 				t.Fatalf("reference model: %d remaining, want 70 (test bug)", len(remaining))
 			}
-			if st := env2.stats(); st.Total != 70 || st.Ready != 30 || st.Delayed != 40 {
+			if st := env2.stats(); st.Total != 70 || st.Available != 30 || st.Delayed != 40 {
 				t.Fatalf("stats after recovery = %+v, want total=70 ready=30 delayed=40", st)
 			}
 
@@ -406,7 +415,7 @@ func TestE2E_CrashRecovery_SurvivorsDrainInPriorityDelayOrder(t *testing.T) {
 					t.Fatalf("%s: extra message %s delivered; a delayed batch leaked early", ph.name, extra.ID)
 				}
 				left := len(remaining) - len(recovered)
-				if st := env2.stats(); st.Total != left || st.Ready != 0 || st.Delayed != left {
+				if st := env2.stats(); st.Total != left || st.Available != 0 || st.Delayed != left {
 					t.Fatalf("%s: stats = %+v, want total=%d ready=0 delayed=%d", ph.name, st, left, left)
 				}
 			}
@@ -576,7 +585,7 @@ func TestE2E_ConcurrentLoadThenCrash_NoLossNoDuplicates(t *testing.T) {
 
 	env2 := startEnv(t, walPath, model.ModeFIFO, nil)
 	if st := env2.stats(); st.Total != totalProduced-len(consumed) ||
-		st.Ready != visibleProduced-len(consumed) || st.Delayed != len(delayedIDs) {
+		st.Available != visibleProduced-len(consumed) || st.Delayed != len(delayedIDs) {
 		t.Fatalf("stats after crash #1 = %+v, want total=%d ready=%d delayed=%d",
 			st, totalProduced-len(consumed), visibleProduced-len(consumed), len(delayedIDs))
 	}
@@ -609,7 +618,7 @@ func TestE2E_ConcurrentLoadThenCrash_NoLossNoDuplicates(t *testing.T) {
 	if got, want := len(drained), visibleProduced-len(consumed); got != want {
 		t.Fatalf("drained %d visible messages after crash #1, want %d", got, want)
 	}
-	if st := env2.stats(); st.Total != len(delayedIDs) || st.Ready != 0 || st.Delayed != len(delayedIDs) {
+	if st := env2.stats(); st.Total != len(delayedIDs) || st.Available != 0 || st.Delayed != len(delayedIDs) {
 		t.Fatalf("stats after visible drain = %+v, want total=%d ready=0 delayed=%d", st, len(delayedIDs), len(delayedIDs))
 	}
 
@@ -639,7 +648,7 @@ func TestE2E_ConcurrentLoadThenCrash_NoLossNoDuplicates(t *testing.T) {
 	if len(late) != len(delayedIDs) {
 		t.Fatalf("recovered %d delayed messages after crash #2, want %d", len(late), len(delayedIDs))
 	}
-	if st := env3.stats(); st.Total != 0 || st.Ready != 0 || st.Delayed != 0 {
+	if st := env3.stats(); st.Total != 0 || st.Available != 0 || st.Delayed != 0 {
 		t.Fatalf("stats after full drain = %+v, want zeros", st)
 	}
 

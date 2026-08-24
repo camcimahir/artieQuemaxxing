@@ -11,6 +11,7 @@ package engine
 import (
 	"container/heap"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -48,8 +49,11 @@ type readyHeap struct {
 
 func (h *readyHeap) Len() int { return len(h.items) }
 
-func (h *readyHeap) Less(i, j int) bool {
-	a, b := h.items[i], h.items[j]
+func (h *readyHeap) Less(i, j int) bool { return h.less(h.items[i], h.items[j]) }
+
+// less is the selection rule itself, expressed over items rather than heap
+// indices so Snapshot can reuse it to sort a copy into delivery order.
+func (h *readyHeap) less(a, b *item) bool {
 	if a.msg.Priority != b.msg.Priority {
 		return a.msg.Priority > b.msg.Priority
 	}
@@ -97,8 +101,11 @@ type delayedHeap struct {
 
 func (h *delayedHeap) Len() int { return len(h.items) }
 
-func (h *delayedHeap) Less(i, j int) bool {
-	a, b := h.items[i], h.items[j]
+func (h *delayedHeap) Less(i, j int) bool { return h.less(h.items[i], h.items[j]) }
+
+// less orders by maturity time, falling back to arrival order so the
+// comparison is total and Snapshot's output is deterministic.
+func (h *delayedHeap) less(a, b *item) bool {
 	if !a.msg.AvailableAt.Equal(b.msg.AvailableAt) {
 		return a.msg.AvailableAt.Before(b.msg.AvailableAt)
 	}
@@ -139,7 +146,9 @@ func (h *delayedHeap) Pop() any {
 // by the selection rule and a delayed min-heap ordered by AvailableAt —
 // plus an ID index for O(1) lookup. Delayed messages are promoted lazily:
 // every call that takes now first moves matured messages into the ready
-// heap. All operations are O(log n) or better.
+// heap. Push, Pop, and Remove are O(log n) after any promotion; a call that
+// takes now first promotes matured messages at O(k log n). Snapshot is
+// O(n log n) because it sorts the heap arrays into presentation order.
 //
 // The mutex is internal and the structure is a strict leaf lock (methods
 // never call out into other components), per SKILLS.md §2.2.
@@ -261,6 +270,97 @@ func (q *FrankensteinQueue) Remove(id string) bool {
 		heap.Remove(&q.delayed, it.index)
 	}
 	return true
+}
+
+// View is a read-only picture of both heaps taken in one lock acquisition.
+// The message slices may be truncated by a limit; the Len fields always
+// describe the whole queue, so a caller can report honest totals next to a
+// partial page.
+type View struct {
+	// Ready holds visible messages in the exact order Pop would return
+	// them: Ready[0] is the next message out.
+	Ready []model.Message
+
+	// Delayed holds not-yet-visible messages ordered by AvailableAt, so
+	// Delayed[0] is the next one to mature.
+	Delayed []model.Message
+
+	// ReadyTruncated reports that a limit cut Ready short.
+	ReadyTruncated bool
+
+	// DelayedTruncated reports that a limit cut Delayed short.
+	DelayedTruncated bool
+
+	// ReadyLen is the total number of visible messages, ignoring any limit.
+	ReadyLen int
+
+	// DelayedLen is the total number of not-yet-visible messages, ignoring
+	// any limit.
+	DelayedLen int
+}
+
+// Snapshot returns a read-only view of the queue at now. Both message slices
+// are copies — mutating them does not affect the queue. A limit > 0 truncates
+// each slice independently to that many entries.
+//
+// Snapshot promotes matured messages exactly like Pop does, so the two never
+// disagree about visibility, and it takes the queue lock exactly once: the
+// lists and the counts in the returned View are always from the same instant,
+// which is what lets a caller present them together without qualification.
+//
+// Cost is O(n log n) because the heap arrays are only partially ordered and
+// must be sorted into presentation order. This is an inspection path (the web
+// console and GET /messages), not the hot path; Pop remains O(log n).
+func (q *FrankensteinQueue) Snapshot(now time.Time, limit int) View {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	q.promoteLocked(now)
+	ready, readyTruncated := orderedMessages(q.ready.items, q.ready.less, limit)
+	delayed, delayedTruncated := orderedMessages(q.delayed.items, q.delayed.less, limit)
+	return View{
+		Ready:            ready,
+		Delayed:          delayed,
+		ReadyTruncated:   readyTruncated,
+		DelayedTruncated: delayedTruncated,
+		ReadyLen:         q.ready.Len(),
+		DelayedLen:       q.delayed.Len(),
+	}
+}
+
+// orderedMessages copies items, sorts the copy with less, applies limit,
+// and returns the messages plus whether anything was cut. Both comparators
+// are total (they fall back to the arrival counter), so the sort is stable
+// in effect and the output is deterministic.
+func orderedMessages(items []*item, less func(a, b *item) bool, limit int) ([]model.Message, bool) {
+	if len(items) == 0 {
+		// Empty non-nil so JSON encodes as [] rather than null. GET /messages
+		// documents these fields as arrays; a reviewer curling an empty
+		// queue should see that shape, not a surprise null.
+		return []model.Message{}, false
+	}
+	sorted := make([]*item, len(items))
+	copy(sorted, items)
+	slices.SortFunc(sorted, func(a, b *item) int {
+		switch {
+		case less(a, b):
+			return -1
+		case less(b, a):
+			return 1
+		default:
+			return 0
+		}
+	})
+	truncated := false
+	if limit > 0 && len(sorted) > limit {
+		sorted = sorted[:limit]
+		truncated = true
+	}
+	out := make([]model.Message, len(sorted))
+	for i, it := range sorted {
+		out[i] = it.msg
+	}
+	return out, truncated
 }
 
 // promoteLocked moves every delayed message whose AvailableAt has passed

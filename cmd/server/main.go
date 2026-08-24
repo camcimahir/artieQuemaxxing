@@ -1,6 +1,6 @@
 // Command server is the Queuemaxxing HTTP API process: it parses
-// configuration, opens the durable queue, and serves enqueue/dequeue/stats
-// until SIGINT or SIGTERM.
+// configuration, opens the durable queue, and serves the HTTP API —
+// including the embedded web console at GET / — until SIGINT or SIGTERM.
 package main
 
 import (

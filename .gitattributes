@@ -1,0 +1,8 @@
+# Go tooling (gofmt, go vet) expects LF. Without this, cloning on Windows with
+# the default core.autocrlf=true gives a CRLF working tree and `gofmt -l .`
+# lists every file in the repo: the project failing its own documented bar
+# before the reviewer has read a line of code.
+#
+# text=auto lets git detect and skip binary files; eol=lf pins the working-tree
+# ending for everything it does treat as text, on every platform.
+* text=auto eol=lf
