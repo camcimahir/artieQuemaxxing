@@ -1,0 +1,23 @@
+# WAL / runtime data
+data/
+*.wal
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Scratch / backup files
+sandbox.go
+*.orig
